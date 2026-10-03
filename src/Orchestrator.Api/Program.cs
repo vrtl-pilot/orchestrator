@@ -12,10 +12,20 @@ using Orchestrator.Core.Git;
 using Orchestrator.Core.Model;
 using Orchestrator.Core.Storage;
 
-var builder = WebApplication.CreateBuilder(args);
+// A published build may be started from any folder (shortcut, service, other repo). Read appsettings.json and
+// wwwroot from the app's own folder then, instead of silently running with defaults from the current directory.
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "appsettings.json"))
+        ? null
+        : AppContext.BaseDirectory,
+});
 
 builder.Services.Configure<OrchestratorOptions>(builder.Configuration.GetSection(OrchestratorOptions.SectionName));
-builder.Services.PostConfigure<OrchestratorOptions>(o => o.DataDirectory = Path.GetFullPath(o.DataDirectory));
+builder.Services.PostConfigure<OrchestratorOptions>(o => o.DataDirectory = string.IsNullOrWhiteSpace(o.DataDirectory)
+    ? OrchestratorOptions.DefaultDataDirectory
+    : Path.GetFullPath(o.DataDirectory));
 
 builder.Services.AddSingleton<IAgentAdapter, ClaudeCodeAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, CodexAdapter>();

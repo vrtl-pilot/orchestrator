@@ -257,6 +257,13 @@ public sealed class TaskService(
         {
             throw new OrchestratorException($"Repository '{root}' is outside the allowed repository roots.");
         }
+
+        if (!(await GitClient.RunAsync(root, ["rev-parse", "--verify", "--quiet", "HEAD"], cancellationToken: ct)).Ok)
+        {
+            throw new OrchestratorException(
+                $"Repository '{root}' has no commits yet, so there is nothing to branch a worktree from. "
+                + "Commit something first (git add -A && git commit -m init), then delegate again.");
+        }
         return root;
     }
 

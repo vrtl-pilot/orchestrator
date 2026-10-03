@@ -5,8 +5,21 @@ public sealed class OrchestratorOptions
 {
     public const string SectionName = "Orchestrator";
 
-    /// <summary>Where the task database, event logs and patches are stored.</summary>
-    public string DataDirectory { get; set; } = "data";
+    /// <summary>
+    /// Where the task database, event logs and patches are stored. Empty means <see cref="DefaultDataDirectory"/>, a
+    /// fixed per-user folder, so every way of starting the server (any working directory) sees the same tasks.
+    /// </summary>
+    public string DataDirectory { get; set; } = "";
+
+    /// <summary><c>%LOCALAPPDATA%\agent-orchestrator</c> on Windows, <c>~/.local/share/agent-orchestrator</c> on Linux.</summary>
+    public static string DefaultDataDirectory
+    {
+        get
+        {
+            var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create);
+            return string.IsNullOrEmpty(root) ? Path.GetFullPath("data") : Path.Combine(root, "agent-orchestrator");
+        }
+    }
 
     /// <summary>Repository used when a request does not name one.</summary>
     public string? DefaultRepository { get; set; }

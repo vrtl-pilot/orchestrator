@@ -64,12 +64,16 @@ immediately with install instructions; no worktree is created.
 
 Install the CLI as a tool (optional): `dotnet pack src/Orchestrator.Cli -o nupkg && dotnet tool install -g Orchestrator.Cli --add-source nupkg`.
 
-### Connect Claude Code
+### Connect Claude Code (once, for all projects)
 
 ```bash
-claude mcp add --transport http orchestrator http://127.0.0.1:7777/mcp
+claude mcp add --scope user --transport http orchestrator http://127.0.0.1:7777/mcp
 mkdir -p ~/.claude/skills && cp -r examples/claude-code/skills/delegate ~/.claude/skills/
 ```
+
+`--scope user` makes the orchestrator available in **every** project. Without it, Claude Code uses *local* scope and only
+sees the orchestrator in the folder where you ran the command. If you added it that way earlier:
+`claude mcp remove orchestrator`, then run the command above. Check with `/mcp` in any repo.
 
 Then, in any repo: *"Delegate adding input validation to the signup endpoint to Codex, with `dotnet test` as the check,
 and continue with the docs while it runs."* Claude calls `delegate_task`, keeps working, polls `wait_task`, relays any
@@ -83,9 +87,22 @@ qodercli mcp add --scope user --transport http orchestrator http://127.0.0.1:777
 ```
 
 ```jsonc
-// opencode.json
+// ~/.config/opencode/opencode.json (global, all projects; a project's own opencode.json works too)
 { "mcp": { "orchestrator": { "type": "remote", "url": "http://127.0.0.1:7777/mcp", "enabled": true } } }
 ```
+
+`codex mcp add` writes to `~/.codex/config.toml`, which is global. The Qoder command above uses `--scope user` for the same reason.
+
+### Which projects can it work on?
+
+Any Git repository on this machine. One running orchestrator serves all of them: every task names its repository
+(`repo_path`, normally the calling agent's current directory) and gets its own worktree inside that repo, so tasks in different
+projects never mix. A repository needs at least one commit (for a new folder: `git init && git add -A && git commit -m init`).
+
+- Restrict it to certain folders with `Orchestrator:AllowedRepositoryRoots` (e.g. `["C:/src", "D:/work"]`).
+- `Orchestrator:DefaultRepository` is used when a caller doesn't pass a path.
+- Task history lives in one per-user folder (`%LOCALAPPDATA%\agent-orchestrator` on Windows, `~/.local/share/agent-orchestrator`
+  on Linux), so it doesn't matter where you start the server from. Override with `Orchestrator:DataDirectory`.
 
 Any agent (or you) can also use the CLI from a shell:
 

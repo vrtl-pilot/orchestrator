@@ -226,6 +226,27 @@ public sealed class EndToEndTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Repository_without_commits_is_rejected_before_anything_is_created()
+    {
+        var empty = Directory.CreateTempSubdirectory("orch-empty-").FullName;
+        try
+        {
+            await GitClient.RunCheckedAsync(empty, ["init", "-q"]);
+
+            var ex = await Assert.ThrowsAsync<OrchestratorException>(() =>
+                _service.DelegateAsync(new DelegateRequest { Agent = "fake", Prompt = "x", RepoPath = empty }));
+
+            Assert.Contains("has no commits yet", ex.Message);
+            Assert.Empty(await _service.ListAsync());
+            Assert.False(Directory.Exists(Path.Combine(empty, ".orchestrator")));
+        }
+        finally
+        {
+            Directory.Delete(empty, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Same_client_request_id_returns_the_same_task()
     {
         var a = await _service.DelegateAsync(new DelegateRequest { Agent = "fake", Prompt = "SLEEP", RepoPath = _repo.Root, ClientRequestId = "k1" });

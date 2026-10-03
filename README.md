@@ -125,6 +125,11 @@ Or run `opencode mcp add` and answer the prompts (remote, URL `http://127.0.0.1:
 
 `codex mcp add` writes to `~/.codex/config.toml`, which is global. The Qoder command above uses `--scope user` for the same reason.
 
+The delegate skill works in Qoder too (Qoder loads user skills from `~/.qoder/skills/<name>/SKILL.md`):
+`Copy-Item -Recurse examples\claude-code\skills\delegate $HOME\.qoder\skills\delegate` (macOS/Linux:
+`cp -r examples/claude-code/skills/delegate ~/.qoder/skills/`). Then, in `qodercli`, ask it to delegate, e.g.
+*"Use the orchestrator tools to delegate to opencode: …"*.
+
 ### Which projects can it work on?
 
 Any Git repository on this machine. One running orchestrator serves all of them: every task names its repository

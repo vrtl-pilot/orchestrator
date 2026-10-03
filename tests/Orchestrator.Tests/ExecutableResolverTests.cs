@@ -99,4 +99,23 @@ public sealed class ExecutableResolverTests : IDisposable
         Assert.Null(ExecutableResolver.FindGitBash(system32, null, null));
         Assert.Null(ExecutableResolver.FindGitBash(null, null, null));
     }
+
+    [Fact]
+    public void Windows_finds_an_exe_inside_a_folder_named_like_the_tool()
+    {
+        // Qoder's PowerShell installer: PATH contains ...\.qoder\bin\qodercli, which holds qodercli.exe.
+        var toolDir = Path.Combine(_dir, ".qoder", "bin", "qodercli");
+        Directory.CreateDirectory(toolDir);
+        var exe = Path.Combine(toolDir, "qodercli.exe");
+        File.WriteAllText(exe, "");
+
+        Assert.Equal(exe, ExecutableResolver.Find("qodercli", [Path.Combine(_dir, ".qoder", "entry"), toolDir], isWindows: true, WindowsPathExt));
+    }
+
+    [Fact]
+    public void Registry_paths_are_merged_after_the_process_path_without_duplicates()
+    {
+        var merged = ExecutableResolver.MergePaths(["C:/a", "C:/b/"], ["c:/B", "C:/machine"], ["\"C:/user\"", ""]);
+        Assert.Equal(["C:/a", "C:/b", "C:/machine", "C:/user"], merged);
+    }
 }

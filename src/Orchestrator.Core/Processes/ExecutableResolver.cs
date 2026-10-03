@@ -20,13 +20,42 @@ public static class ExecutableResolver
         return (path, []);
     }
 
-    /// <summary>Returns the full path of <paramref name="executable"/>, or null if it cannot be found.</summary>
-    public static string? Find(string executable) =>
-        Find(
-            executable,
-            (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries),
-            OperatingSystem.IsWindows(),
-            Environment.GetEnvironmentVariable("PATHEXT") ?? DefaultPathExt);
+    /// <summary>
+    /// Returns the full path of <paramref name="executable"/>, or null if it cannot be found.
+    /// On Windows, if it is not on this process's PATH, the current user and machine PATH are read from the registry
+    /// as well: a CLI installed after the orchestrator started (its PATH is a snapshot) is still found without a restart.
+    /// </summary>
+    public static string? Find(string executable)
+    {
+        var isWindows = OperatingSystem.IsWindows();
+        var pathExt = Environment.GetEnvironmentVariable("PATHEXT") ?? DefaultPathExt;
+        var processPath = SplitPath(Environment.GetEnvironmentVariable("PATH"));
+
+        var found = Find(executable, processPath, isWindows, pathExt);
+        if (found is not null || !isWindows) return found;
+
+        var current = MergePaths(
+            processPath,
+            SplitPath(Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.Machine)),
+            SplitPath(Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User)));
+        return Find(executable, current, isWindows, pathExt);
+    }
+
+    private static string[] SplitPath(string? path) =>
+        (path ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>Process PATH first, then directories only present in the registry copies (expanded, de-duplicated).</summary>
+    internal static IReadOnlyList<string> MergePaths(params IEnumerable<string>[] sources)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        foreach (var dir in sources.SelectMany(x => x))
+        {
+            var expanded = Environment.ExpandEnvironmentVariables(dir.Trim('"')).TrimEnd('\\', '/');
+            if (expanded.Length > 0 && seen.Add(expanded)) result.Add(expanded);
+        }
+        return result;
+    }
 
     /// <summary>
     /// Environment-independent lookup (testable on any OS).

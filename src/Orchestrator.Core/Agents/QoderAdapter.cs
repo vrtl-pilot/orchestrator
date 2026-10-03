@@ -14,7 +14,9 @@ public sealed class QoderAdapter : IAgentAdapter
 {
     public string Name => "qoder";
     public string DefaultExecutable => "qodercli";
-    public string InstallHint => "npm i -g @qoder-ai/qodercli, then run `qodercli` and /login, or set QODER_PERSONAL_ACCESS_TOKEN";
+    public string InstallHint =>
+        "Windows PowerShell: irm https://qoder.com/install.ps1 | iex (or npm i -g @qoder-ai/qodercli), "
+        + "then run `qodercli` and /login, or set QODER_PERSONAL_ACCESS_TOKEN";
 
     public AgentInvocation BuildInvocation(AgentTurnContext context)
     {

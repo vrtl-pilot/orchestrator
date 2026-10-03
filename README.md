@@ -62,8 +62,14 @@ dashboard and `orch watch` are the live view.
 ## Quick start (Linux / macOS / WSL / Windows)
 
 Prerequisites: .NET 10 SDK, git, and the agent CLIs you want to use (installed and logged in as usual):
-`npm i -g @anthropic-ai/claude-code @openai/codex opencode-ai @qoder-ai/qodercli`, then `claude` → `/login`, `codex login`,
-`opencode auth login`, `qodercli` → `/login`.
+`npm i -g @anthropic-ai/claude-code @openai/codex opencode-ai`, then `claude` → `/login`, `codex login`,
+`opencode auth login`.
+
+Qoder: use Qoder's own installer (Windows PowerShell `irm https://qoder.com/install.ps1 | iex`, CMD
+`curl -fsSL https://qoder.com/install.cmd -o install.cmd && install.cmd`) or `npm i -g @qoder-ai/qodercli`, then `qodercli` → `/login`.
+In the orchestrator the agent is called **`qoder`** (`delegate_task(agent: "qoder")`, `orch delegate qoder …`, config section
+`Agents:qoder`); the program it runs is **`qodercli`** (`qodercli.exe` from the installer). Restart the orchestrator after
+installing any CLI so it sees the updated PATH; `orch agents` shows the path it found.
 
 ```bash
 dotnet run --project src/Orchestrator.Api          # http://127.0.0.1:7777 (dashboard), /mcp (MCP)

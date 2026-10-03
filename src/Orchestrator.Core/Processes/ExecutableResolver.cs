@@ -6,6 +6,8 @@ namespace Orchestrator.Core.Processes;
 /// </summary>
 public static class ExecutableResolver
 {
+    private const string DefaultPathExt = ".COM;.EXE;.BAT;.CMD";
+
     public static (string FileName, IReadOnlyList<string> PrefixArgs) Resolve(string executable)
     {
         var path = Find(executable) ?? executable;
@@ -19,34 +21,39 @@ public static class ExecutableResolver
     }
 
     /// <summary>Returns the full path of <paramref name="executable"/>, or null if it cannot be found.</summary>
-    public static string? Find(string executable)
+    public static string? Find(string executable) =>
+        Find(
+            executable,
+            (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries),
+            OperatingSystem.IsWindows(),
+            Environment.GetEnvironmentVariable("PATHEXT") ?? DefaultPathExt);
+
+    /// <summary>
+    /// Environment-independent lookup (testable on any OS).
+    /// On Windows only files with a PATHEXT extension are runnable: npm installs an extensionless bash shim
+    /// (<c>npm\opencode</c>) next to <c>opencode.cmd</c>, and the bare shim must never be chosen.
+    /// </summary>
+    internal static string? Find(string executable, IEnumerable<string> pathDirs, bool isWindows, string pathExt)
     {
-        if (Path.IsPathRooted(executable) || executable.Contains(Path.DirectorySeparatorChar)
-            || executable.Contains(Path.AltDirectorySeparatorChar))
+        var extensions = pathExt.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var hasRunnableExtension = extensions.Any(ext => executable.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+
+        IEnumerable<string> Candidates(string basePath) =>
+            !isWindows ? [basePath]
+            : hasRunnableExtension ? [basePath]
+            : extensions.Select(ext => basePath + ext.ToLowerInvariant());
+
+        bool Usable(string candidate) => File.Exists(candidate) && (isWindows || IsExecutable(candidate));
+
+        if (Path.IsPathRooted(executable) || executable.Contains('/') || executable.Contains('\\'))
         {
-            return File.Exists(executable) ? Path.GetFullPath(executable) : null;
+            return Candidates(executable).Where(Usable).Select(Path.GetFullPath).FirstOrDefault();
         }
 
-        var extensions = OperatingSystem.IsWindows()
-            ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
-                .Split(';', StringSplitOptions.RemoveEmptyEntries)
-                .Prepend(string.Empty)
-                .ToArray()
-            : [string.Empty];
-
-        var dirs = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var dir in dirs)
+        foreach (var dir in pathDirs)
         {
-            foreach (var ext in extensions)
-            {
-                var candidate = Path.Combine(dir.Trim('"'), executable + ext);
-                if (File.Exists(candidate) && (OperatingSystem.IsWindows() || ext.Length > 0 || IsExecutable(candidate)))
-                {
-                    return candidate;
-                }
-            }
+            var match = Candidates(Path.Combine(dir.Trim('"'), executable)).FirstOrDefault(Usable);
+            if (match is not null) return match;
         }
         return null;
     }

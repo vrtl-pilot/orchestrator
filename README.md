@@ -52,6 +52,12 @@ dotnet run --project src/Orchestrator.Api          # http://127.0.0.1:7777 (dash
 dotnet run --project src/Orchestrator.Cli -- agents # shows which agent CLIs were found
 ```
 
+**Windows:** npm installs each CLI as `opencode.cmd` (plus an extensionless bash shim that Windows can't run). The orchestrator
+picks the `.cmd`/`.exe` automatically and runs it via `cmd.exe /c`. If a CLI lives somewhere else, set
+`Orchestrator:Agents:<name>:Executable` to its `.cmd`/`.exe`. `orch agents` shows the `resolvedPath` actually used. Restart the
+orchestrator after installing a CLI so it sees the updated PATH. Delegating to an agent whose CLI can't be found is rejected
+immediately with install instructions; no worktree is created.
+
 Install the CLI as a tool (optional): `dotnet pack src/Orchestrator.Cli -o nupkg && dotnet tool install -g Orchestrator.Cli --add-source nupkg`.
 
 ### Connect Claude Code

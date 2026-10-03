@@ -36,7 +36,7 @@ public sealed class EndToEndTests : IAsyncLifetime
         _events = new TaskEventLog(_data);
         var coordination = new TaskCoordination();
         _agent = new FakeAgent();
-        var registry = new AgentRegistry([_agent], options);
+        var registry = new AgentRegistry([_agent, new MissingAgent()], options);
         var worktrees = new WorktreeManager(options);
         _service = new TaskService(store, _events, coordination, registry, worktrees, options);
         _runner = new TaskRunner(store, _events, coordination, registry, worktrees, options, NullLogger<TaskRunner>.Instance);
@@ -134,6 +134,18 @@ public sealed class EndToEndTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Delegating_to_an_agent_whose_cli_is_missing_fails_before_creating_anything()
+    {
+        var ex = await Assert.ThrowsAsync<OrchestratorException>(() =>
+            _service.DelegateAsync(new DelegateRequest { Agent = "missing", Prompt = "x", RepoPath = _repo.Root }));
+
+        Assert.Contains("was not found", ex.Message);
+        Assert.Contains("npm i -g missing-agent", ex.Message);
+        Assert.Empty(await _service.ListAsync());
+        Assert.DoesNotContain("orchestrator/", await _repo.GitAsync("branch", "--list"));
+    }
+
+    [Fact]
     public async Task Same_client_request_id_returns_the_same_task()
     {
         var a = await _service.DelegateAsync(new DelegateRequest { Agent = "fake", Prompt = "SLEEP", RepoPath = _repo.Root, ClientRequestId = "k1" });
@@ -156,6 +168,16 @@ public sealed class EndToEndTests : IAsyncLifetime
 
         await _service.CancelAsync(parent.Id);
         await _service.CancelAsync(child.Id);
+    }
+
+    private sealed class MissingAgent : IAgentAdapter
+    {
+        public string Name => "missing";
+        public string DefaultExecutable => "definitely-not-installed-agent-cli";
+        public string InstallHint => "npm i -g missing-agent";
+        public AgentInvocation BuildInvocation(AgentTurnContext context) => throw new InvalidOperationException();
+        public IAgentOutputParser CreateParser() => throw new InvalidOperationException();
+        public string? GetWatchCommand(AgentTask task, AgentOptions options) => null;
     }
 
     /// <summary>

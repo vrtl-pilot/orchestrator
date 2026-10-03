@@ -24,10 +24,21 @@ public sealed class TaskService(
     public async Task<AgentTask> DelegateAsync(DelegateRequest request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt)) throw new OrchestratorException("prompt is required.");
-        if (!agents.TryGet(request.Agent, out _, out _))
+        if (!agents.TryGet(request.Agent, out var adapter, out _))
         {
             throw new OrchestratorException(
                 $"Unknown or disabled agent '{request.Agent}'. Available: {string.Join(", ", agents.Describe().Where(a => a.Enabled).Select(a => a.Name))}.");
+        }
+
+        // Fail before creating a worktree if the CLI cannot be started at all.
+        var info = agents.Describe().First(a => a.Name.Equals(adapter.Name, StringComparison.OrdinalIgnoreCase));
+        if (info.ResolvedPath is null)
+        {
+            throw new OrchestratorException(
+                $"The {adapter.Name} CLI ('{info.Executable}') was not found on the orchestrator's PATH. "
+                + (adapter.InstallHint is { } hint ? $"Install it ({hint}), " : "Install it, ")
+                + $"or set Orchestrator:Agents:{adapter.Name}:Executable to its full path (on Windows, the .cmd or .exe file). "
+                + "Then restart the orchestrator so it picks up the new PATH.");
         }
 
         if (request.ClientRequestId is { Length: > 0 } clientId

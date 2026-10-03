@@ -62,4 +62,7 @@ public interface IAgentAdapter
 
     /// <summary>A command a human can run to see the agent's session (live if the agent supports attaching).</summary>
     string? GetWatchCommand(AgentTask task, AgentOptions options);
+
+    /// <summary>How to install the CLI, shown when it cannot be found.</summary>
+    string? InstallHint => null;
 }

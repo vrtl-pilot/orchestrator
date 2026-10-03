@@ -12,6 +12,7 @@ public sealed class OpenCodeAdapter : IAgentAdapter
 {
     public string Name => "opencode";
     public string DefaultExecutable => "opencode";
+    public string InstallHint => "npm i -g opencode-ai, then `opencode auth login`";
 
     public AgentInvocation BuildInvocation(AgentTurnContext context)
     {

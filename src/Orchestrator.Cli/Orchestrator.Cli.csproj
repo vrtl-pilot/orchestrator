@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Orchestrator.Cli</RootNamespace>
+    <AssemblyName>orch</AssemblyName>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>orch</ToolCommandName>
+    <PackageId>Orchestrator.Cli</PackageId>
+  </PropertyGroup>
+
+</Project>

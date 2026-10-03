@@ -1,0 +1,9 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+TestResults/
+# Orchestrator runtime data (task DB, event logs, patches)
+data/
+.orchestrator/

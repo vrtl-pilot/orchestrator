@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+data/
+.orchestrator/
+.git/
+tests/
+docs/

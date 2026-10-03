@@ -1,0 +1,35 @@
+# Local-first deployment. The orchestrator only listens on localhost.
+#
+# Mount your repositories at the SAME absolute path inside the container as on the host, so paths that
+# Claude Code passes as repo_path resolve in both places (e.g. /home/you/src -> /home/you/src).
+# Agent credential directories are mounted read-write: the CLIs store sessions and refresh tokens there.
+# Log in once inside the container (see README), or pass API keys / tokens via environment variables.
+services:
+  orchestrator:
+    build: .
+    image: agent-orchestrator
+    ports:
+      - "127.0.0.1:7777:7777"
+    environment:
+      Orchestrator__AllowedRepositoryRoots__0: ${REPOS_DIR:?set REPOS_DIR to your source folder}
+      # Orchestrator__ApiKey: ${ORCHESTRATOR_API_KEY}
+      # Optional credentials instead of interactive logins:
+      # CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}   # from `claude setup-token`
+      # ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # CODEX_API_KEY: ${CODEX_API_KEY}
+      # OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - ${REPOS_DIR}:${REPOS_DIR}
+      - orchestrator-data:/data
+      - claude-home:/home/agent/.claude
+      - codex-home:/home/agent/.codex
+      - opencode-data:/home/agent/.local/share/opencode
+      - opencode-config:/home/agent/.config/opencode
+    restart: unless-stopped
+
+volumes:
+  orchestrator-data:
+  claude-home:
+  codex-home:
+  opencode-data:
+  opencode-config:

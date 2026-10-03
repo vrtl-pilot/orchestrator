@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Orchestrator.Api/Orchestrator.Api.csproj" />
+    <Project Path="src/Orchestrator.Cli/Orchestrator.Cli.csproj" />
+    <Project Path="src/Orchestrator.Core/Orchestrator.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Orchestrator.Tests/Orchestrator.Tests.csproj" />
+  </Folder>
+</Solution>

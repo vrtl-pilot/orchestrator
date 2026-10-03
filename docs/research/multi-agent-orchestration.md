@@ -200,7 +200,7 @@ Codex is the same, with `codex exec --json -o <tmp>/last.txt --sandbox workspace
 - **Later:** the OpenCode HTTP adapter, the Codex app-server adapter, an ACP-based uniform adapter, a channel push server, an A2A facade, a web dashboard.
 
 ### Docker notes
-- Run the orchestrator and the agent CLIs in one image (Node for the npm-installed CLIs + the .NET runtime). Mount the repo, and mount credential directories read-only:
+- Run the orchestrator and the agent CLIs in one image (Node for the npm-installed CLIs + the .NET runtime). Mount the repo, and mount credential directories **read-write** (the CLIs write session transcripts and refreshed tokens there; a read-only mount breaks them):
   - `~/.claude` (or pass `CLAUDE_CODE_OAUTH_TOKEN`)
   - `~/.codex`
   - `~/.local/share/opencode`
@@ -327,6 +327,8 @@ Each item is a failure mode followed by its mitigation. The ones that are easies
 25. **Result too big for context.** Claude Code warns above 10k tokens of MCP output and truncates at 25k by default (`MAX_MCP_OUTPUT_TOKENS`). → Return a summary, diffstat, branch and patch file path. Claude reads details with `git diff` on demand.
 26. **Late answers and cancellations.** An `answer_task` arrives after the request timed out, or a cancel arrives while the worker is mid-commit. → Version the pending request (`request_id` must match), make cancel idempotent, and clean up the worktree only after the process exits.
 27. **Dependent subtasks and merge order.** Task B needs A's output. → `base_ref` may be another task's branch (a small DAG). Merge in dependency order and re-run tests after each merge.
+28. ★ **Parent-session leakage (found while testing the prototype).** If the orchestrator is started from inside an agent session (e.g. from Claude Code's own terminal), child processes inherit variables such as `CLAUDECODE`, `CLAUDE_CODE_SESSION_ID` and the session's IPC socket/token. In testing, a child `claude -p` reported the *parent's* session id. → Strip session-identity and IPC variables from agent child processes (credentials stay). The prototype does this by default (`ScrubEnvironmentVariables`).
+29. **Watching replays.** A live view that replays history first must not treat an *old* `input_required`/`completed` event as the end (the task may have resumed since). Check the task's current state before stopping.
 
 ## 8d. Recommended tech stack
 
@@ -364,6 +366,19 @@ Why .NET is a good fit here (not just the user's preference):
 - **TypeScript/Node** if you want to *embed* the vendors' SDKs directly (Claude Agent SDK, Codex SDK, OpenCode SDK, ACP libraries are all TS-first), or fork **claw-orchestrator** instead of building. This is the fastest path if .NET isn't a requirement.
 - **Python** only if the orchestrator will also host LLM logic of its own (LangGraph etc.). Not needed here.
 - **Go/Rust** for a tiny static binary. Weaker MCP/agent SDK ecosystem, and no advantage at personal scale.
+
+## 8e. Seeing what a delegated agent is doing
+
+A headless child process has no window, so visibility has to be built in:
+
+| Mechanism | Live? | Agents |
+|---|---|---|
+| Normalized event stream (messages, commands, file edits, errors, test output) from each CLI's JSON output → dashboard / `orch watch` / MCP `get_task_events` | Yes | All |
+| OpenCode tasks run inside a shared `opencode serve` (`opencode run --attach <url>`), and the human runs `opencode attach <url> --session <id>` to open the real TUI on the same session | Yes, native UI | OpenCode **[OFFICIAL CLI]** |
+| `claude --resume <id>` / `codex resume <id>` in the task's worktree | After the turn, native UI | Claude Code, Codex |
+| Open the worktree folder in an editor (files change on disk) | Yes | All |
+
+Neither Claude Code nor Codex documents attaching a UI to a running headless (`-p` / `exec`) run, so for those the event stream is the live view.
 
 ## 9. Decision guidance
 

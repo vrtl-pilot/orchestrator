@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Orchestrator</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5f6b7a; --border: #dde2e8;
+  --accent: #2f6fde; --ok: #1f8a4c; --warn: #b26a00; --err: #c43c3c; --code-bg: #f0f2f5;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1216; --panel: #171b21; --text: #e6e9ee; --muted: #94a0b0; --border: #2a313a;
+    --accent: #6ea1ff; --ok: #4cc485; --warn: #e3a33b; --err: #ff7b7b; --code-bg: #1f252d;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+header h1 { font-size: 16px; margin: 0; }
+header .agents { color: var(--muted); font-size: 12px; margin-left: auto; }
+main { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; height: calc(100vh - 50px); }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; height: auto; } #list { max-height: 40vh; } }
+#list { overflow-y: auto; border-right: 1px solid var(--border); background: var(--panel); }
+.task { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.task:hover, .task.active { background: var(--code-bg); }
+.task .row { display: flex; justify-content: space-between; gap: 8px; }
+.task .id { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.task .prompt { margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip { font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid currentColor; white-space: nowrap; }
+.s-running, .s-preparing, .s-testing, .s-queued { color: var(--accent); }
+.s-completed { color: var(--ok); } .s-input_required { color: var(--warn); } .s-failed, .s-cancelled { color: var(--err); }
+#detail { overflow-y: auto; padding: 16px; min-width: 0; }
+#detail .empty { color: var(--muted); margin-top: 20vh; text-align: center; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+.card h2 { font-size: 15px; margin: 0 0 8px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.kv { display: grid; grid-template-columns: 120px 1fr; gap: 4px 10px; font-size: 13px; }
+.kv div:nth-child(odd) { color: var(--muted); }
+code, pre { font-family: var(--mono); font-size: 12px; }
+pre { background: var(--code-bg); padding: 8px 10px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }
+.question { border-color: var(--warn); }
+textarea, input, select { width: 100%; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+button { font: inherit; border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--err); }
+.actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+#events { font-family: var(--mono); font-size: 12px; }
+.ev { display: grid; grid-template-columns: 64px 92px 1fr; gap: 8px; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+.ev .t { color: var(--muted); } .ev .k { color: var(--muted); text-transform: lowercase; }
+.ev .x { white-space: pre-wrap; word-break: break-word; min-width: 0; }
+.ev details summary { cursor: pointer; color: var(--muted); }
+.k-message .x { color: var(--text); font-family: system-ui, sans-serif; font-size: 13px; }
+.k-command .k, .k-file_change .k { color: var(--accent); } .k-error .k, .k-error .x { color: var(--err); }
+.k-status .x { font-weight: 600; } .k-test .k { color: var(--ok); } .k-reasoning .x { color: var(--muted); font-style: italic; }
+.live { font-size: 12px; color: var(--muted); }
+.live::before { content: "●"; margin-right: 4px; color: var(--ok); }
+form.new { display: grid; gap: 8px; }
+form.new .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent Orchestrator</h1>
+  <button id="newBtn">New task</button>
+  <span class="agents" id="agents"></span>
+</header>
+<main>
+  <nav id="list"></nav>
+  <section id="detail"><p class="empty">Select a task to watch it live.</p></section>
+</main>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let key = (() => { try { return localStorage.getItem("orchKey") || ""; } catch { return ""; } })();
+let selected = null, source = null;
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(key ? { "X-Orchestrator-Key": key } : {}) } });
+  if (res.status === 401) {
+    key = prompt("API key for this orchestrator:") || "";
+    try { localStorage.setItem("orchKey", key); } catch {}
+    return api(path, opts);
+  }
+  const body = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(body?.error || res.statusText);
+  return body;
+}
+
+const chip = s => `<span class="chip s-${s}">${s.replace("_", " ")}</span>`;
+const time = ts => new Date(ts).toLocaleTimeString([], { hour12: false });
+
+async function refreshList() {
+  try {
+    const tasks = await api("/api/tasks?limit=100");
+    $("#list").innerHTML = tasks.length ? tasks.map(t => `
+      <div class="task ${t.id === selected ? "active" : ""}" data-id="${t.id}">
+        <div class="row"><span class="id">${t.id} · ${t.agent}</span>${chip(t.status)}</div>
+        <div class="prompt">${esc(t.pendingQuestion || t.summary || t.error || t.branch || "")}</div>
+      </div>`).join("") : `<p style="padding:14px;color:var(--muted)">No tasks yet.</p>`;
+    $("#list").querySelectorAll(".task").forEach(el => el.onclick = () => select(el.dataset.id));
+    if (selected) renderTask(await api(`/api/tasks/${selected}`), false);
+  } catch (e) { console.error(e); }
+}
+
+function select(id) {
+  selected = id;
+  location.hash = `task=${id}`;
+  $("#detail").innerHTML = `<div id="taskCard"></div><div class="card"><h2>Live activity <span class="live" id="liveState">connecting</span></h2><div id="events"></div></div>`;
+  api(`/api/tasks/${id}`).then(t => renderTask(t, true)).catch(e => $("#taskCard").innerHTML = `<div class="card">${esc(e.message)}</div>`);
+  follow(id);
+  refreshList();
+}
+
+function renderTask(t, force) {
+  const card = $("#taskCard");
+  if (!card) return;
+  if (!force && card.dataset.updated === t.updatedAt && card.dataset.status === t.status) return;
+  if (!force && ["answer", "followup"].includes(document.activeElement?.id)) return; // Don't wipe text being typed.
+  card.dataset.updated = t.updatedAt; card.dataset.status = t.status;
+  card.innerHTML = `
+    <div class="card">
+      <h2>${esc(t.id)} ${chip(t.status)} <span style="color:var(--muted);font-weight:400">${esc(t.agent)} · turn ${t.turns}</span></h2>
+      <div class="kv">
+        <div>Branch</div><div><code>${esc(t.branch || "—")}</code></div>
+        <div>Worktree</div><div><code>${esc(t.worktreePath || "—")}</code></div>
+        <div>Changes</div><div>${t.changedFileCount} file(s)${t.testsPassed == null ? "" : t.testsPassed ? " · tests passed" : " · <span style='color:var(--err)'>tests failed</span>"}</div>
+        ${t.watchCommand ? `<div>Open session</div><div><code>${esc(t.watchCommand)}</code> <button data-copy="${esc(t.watchCommand)}">copy</button></div>` : ""}
+      </div>
+      <div class="actions">
+        ${["queued","preparing","running","testing","input_required"].includes(t.status) ? `<button class="danger" id="cancel">Cancel</button>` : ""}
+        ${t.patchPath ? `<a href="/api/tasks/${t.id}/patch${key ? `?key=${encodeURIComponent(key)}` : ""}"><button>Download patch</button></a>` : ""}
+      </div>
+    </div>
+    ${t.status === "input_required" ? `
+    <div class="card question">
+      <h2>The agent needs a decision</h2>
+      <pre>${esc(t.pendingQuestion)}</pre>
+      <textarea id="answer" rows="3" placeholder="Your answer…"></textarea>
+      <div class="actions"><button class="primary" id="sendAnswer">Send answer</button></div>
+    </div>` : ""}
+    ${t.error ? `<div class="card"><h2>Error</h2><pre>${esc(t.error)}</pre></div>` : ""}
+    ${t.summary ? `<div class="card"><h2>Agent summary</h2><pre>${esc(t.summary)}</pre></div>` : ""}
+    ${t.diffStat ? `<div class="card"><h2>Diff</h2><pre>${esc(t.diffStat)}</pre></div>` : ""}
+    ${t.testOutputTail ? `<div class="card"><h2>Test output (tail)</h2><pre>${esc(t.testOutputTail)}</pre></div>` : ""}
+    ${["completed","failed"].includes(t.status) && t.worktreePath ? `
+    <div class="card"><h2>Follow-up</h2>
+      <textarea id="followup" rows="2" placeholder="Ask the same agent session for more changes…"></textarea>
+      <div class="actions"><button id="sendFollowup">Continue task</button></div></div>` : ""}`;
+  card.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => navigator.clipboard?.writeText(b.dataset.copy));
+  $("#cancel", card)?.addEventListener("click", () => api(`/api/tasks/${t.id}/cancel`, { method: "POST" }).then(refreshList));
+  $("#sendAnswer", card)?.addEventListener("click", () => post(`/api/tasks/${t.id}/answer`, $("#answer").value));
+  $("#sendFollowup", card)?.addEventListener("click", () => post(`/api/tasks/${t.id}/continue`, $("#followup").value));
+}
+
+async function post(path, message) {
+  if (!message.trim()) return;
+  try { renderTask(await api(path, { method: "POST", body: JSON.stringify({ message }) }), true); refreshList(); }
+  catch (e) { alert(e.message); }
+}
+
+function follow(id) {
+  source?.close();
+  const box = $("#events");
+  source = new EventSource(`/api/tasks/${id}/events${key ? `?key=${encodeURIComponent(key)}` : ""}`);
+  source.onopen = () => { const s = $("#liveState"); if (s) s.textContent = "live"; };
+  source.onerror = () => { const s = $("#liveState"); if (s) s.textContent = "reconnecting"; };
+  source.addEventListener("agent-event", msg => {
+    const e = JSON.parse(msg.data);
+    const atBottom = box.parentElement.scrollHeight - box.parentElement.scrollTop - box.parentElement.clientHeight < 40;
+    const row = document.createElement("div");
+    row.className = `ev k-${e.kind}`;
+    const detail = e.detail ? `<details><summary>details</summary><pre>${esc(e.detail)}</pre></details>` : "";
+    row.innerHTML = `<span class="t">${time(e.timestamp)}</span><span class="k">${e.kind}</span><span class="x">${esc(e.text)}${detail}</span>`;
+    box.appendChild(row);
+    if (atBottom) row.scrollIntoView({ block: "end" });
+    if (e.kind === "status") refreshList();
+  });
+}
+
+function newTaskForm() {
+  selected = null; source?.close();
+  $("#detail").innerHTML = `
+    <div class="card"><h2>Delegate a task</h2>
+      <form class="new" id="newForm">
+        <div class="two">
+          <label>Agent<select name="agent" id="agentSel"></select></label>
+          <label>Model (optional)<input name="model" placeholder="agent default"></label>
+        </div>
+        <label>Repository path<input name="repoPath" placeholder="/path/to/repo" required></label>
+        <label>Task brief<textarea name="prompt" rows="6" required placeholder="Goal, constraints, files, acceptance criteria"></textarea></label>
+        <div class="two">
+          <label>Test command (optional)<input name="testCommand" placeholder="dotnet test"></label>
+          <label>Base ref (optional)<input name="baseRef" placeholder="HEAD + uncommitted"></label>
+        </div>
+        <div class="actions"><button class="primary">Start</button></div>
+      </form></div>`;
+  api("/api/agents").then(list => $("#agentSel").innerHTML = list.map(a => `<option ${a.available ? "" : "disabled"}>${a.name}</option>`).join(""));
+  $("#newForm").onsubmit = async ev => {
+    ev.preventDefault();
+    const body = Object.fromEntries([...new FormData(ev.target)].filter(([, v]) => v));
+    try { const t = await api("/api/tasks", { method: "POST", body: JSON.stringify(body) }); select(t.id); }
+    catch (e) { alert(e.message); }
+  };
+}
+
+$("#newBtn").onclick = newTaskForm;
+api("/api/agents").then(list => $("#agents").textContent = list.map(a => `${a.name}: ${a.available ? "ready" : a.enabled ? "not installed" : "disabled"}`).join(" · ")).catch(() => {});
+const fromHash = location.hash.match(/task=([\w-]+)/);
+if (fromHash) select(fromHash[1]);
+refreshList();
+setInterval(refreshList, 4000);
+</script>
+</body>
+</html>

@@ -1,3 +1,4 @@
+using Orchestrator.Core;
 using Orchestrator.Core.Agents;
 using Orchestrator.Core.Model;
 
@@ -110,5 +111,54 @@ public class ParserTests
         Assert.Equal((AgentEventKind.Command, "Select-String Contributing README.md"), (shell.Kind, shell.Text));
         Assert.Equal((AgentEventKind.FileChange, "edit Edited README.md (1 replacement)"), (edit.Kind, edit.Text));
         Assert.Equal((AgentEventKind.FileChange, "write docs/a.md"), (write.Kind, write.Text));
+    }
+
+    [Fact]
+    public void Qoder_stream_json_frames_are_parsed_with_the_claude_protocol()
+    {
+        // Frames captured from qodercli 1.1.65 (`-p --output-format stream-json`). Unlike Claude Code, the init frame
+        // carries no session_id; it arrives in later frames.
+        var parser = new QoderAdapter().CreateParser();
+        var lines = new[]
+        {
+            """{"type":"system","subtype":"init","apiKeySource":"none","qodercli_version":"1.1.65","model":"auto","permissionMode":"acceptEdits"}""",
+            """{"type":"assistant","session_id":"q-1","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash","input":{"command":"grep -q Contributing README.md"}},{"type":"tool_use","name":"Edit","input":{"file_path":"README.md"}}]}}""",
+            """{"type":"assistant","session_id":"q-1","message":{"role":"assistant","content":[{"type":"text","text":"Added the section."}]}}""",
+            """{"type":"result","subtype":"success","is_error":false,"result":"Added the section.","session_id":"q-1","total_credits":0}""",
+        };
+
+        var events = lines.SelectMany(parser.ParseLine).ToList();
+
+        Assert.Equal("q-1", parser.SessionId);
+        Assert.Equal("Added the section.", parser.FinalMessage);
+        Assert.Null(parser.Error);
+        Assert.Equal("model auto", events[0].Text);
+        Assert.Contains(events, e => e.Kind == AgentEventKind.Command && e.Text == "grep -q Contributing README.md");
+        Assert.Contains(events, e => e.Kind == AgentEventKind.FileChange && e.Text == "Edit README.md");
+    }
+
+    [Fact]
+    public void Qoder_not_logged_in_is_reported_as_an_error()
+    {
+        // qodercli 1.1.65 without credentials: exit code 1 and this result frame.
+        var parser = new QoderAdapter().CreateParser();
+        parser.ParseLine("""{"type":"result","subtype":"success","is_error":true,"num_turns":1,"result":"Not logged in · Please run /login","session_id":"c64ac784"}""").ToList();
+        Assert.Equal("Not logged in · Please run /login", parser.Error);
+    }
+
+    [Fact]
+    public void Qoder_invocation_uses_print_mode_stdin_and_resume()
+    {
+        var task = new AgentTask { Id = "t1", Agent = "qoder", Prompt = "p", RepoRoot = "/r", Model = "auto" };
+        var options = new AgentOptions { ExtraArgs = ["--permission-mode", "accept_edits"] };
+        var adapter = new QoderAdapter();
+
+        var first = adapter.BuildInvocation(new AgentTurnContext { Task = task, Message = "do it", ScratchDirectory = "/tmp", Options = options });
+        var resumed = adapter.BuildInvocation(new AgentTurnContext { Task = task, Message = "answer", ResumeSessionId = "q-1", ScratchDirectory = "/tmp", Options = options });
+
+        Assert.Equal("qodercli", first.Executable);
+        Assert.Equal(["-p", "--output-format", "stream-json", "--model", "auto", "--permission-mode", "accept_edits"], first.Arguments);
+        Assert.Equal("do it", first.StandardInput);
+        Assert.Equal(["-p", "--output-format", "stream-json", "--model", "auto", "--resume", "q-1", "--permission-mode", "accept_edits"], resumed.Arguments);
     }
 }

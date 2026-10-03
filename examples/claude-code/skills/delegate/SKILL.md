@@ -1,6 +1,6 @@
 ---
 name: delegate
-description: Delegate a well-scoped coding subtask to another coding agent (Codex, OpenCode, or another Claude Code) through the Agent Orchestrator MCP server, wait for it, answer its questions, and merge its branch. Use when the user asks to hand work to Codex/OpenCode/another agent, or to parallelize independent subtasks.
+description: Delegate a well-scoped coding subtask to another coding agent (Codex, OpenCode, Qoder, or another Claude Code) through the Agent Orchestrator MCP server, wait for it, answer its questions, and merge its branch. Use when the user asks to hand work to Codex/OpenCode/Qoder/another agent, or to parallelize independent subtasks.
 ---
 
 # Delegating work through the Agent Orchestrator
@@ -17,7 +17,7 @@ delegate further if you are yourself a delegated agent (`ORCHESTRATOR_TASK_ID` i
 ## 2. Start the task
 
 Call `delegate_task` with:
-- `agent`: `codex`, `opencode` or `claude` (call `list_agents` if unsure what is installed).
+- `agent`: `codex`, `opencode`, `qoder` or `claude` (call `list_agents` if unsure what is installed).
 - `repo_path`: your current working directory (absolute).
 - `prompt`: a **self-contained brief**: goal, constraints, the files involved, acceptance criteria, and
   anything you already learned. The agent cannot see this conversation.

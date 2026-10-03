@@ -71,6 +71,8 @@ public sealed class OrchestratorOptions
         "CODEX_THREAD_ID",
         "CODEX_SESSION_ID",
         "OPENCODE_SESSION_ID",
+        "QODER_SESSION_*",
+        "QODER_PID",
         "OPENCODE_SERVER_PASSWORD",
         "ORCHESTRATOR_API_KEY",
     ];
@@ -81,7 +83,7 @@ public sealed class OrchestratorOptions
     public Dictionary<string, AgentOptions> Agents { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
-/// <summary>Per-agent settings (<c>Orchestrator:Agents:claude</c>, <c>...:codex</c>, <c>...:opencode</c>).</summary>
+/// <summary>Per-agent settings (<c>Orchestrator:Agents:claude</c>, <c>...:codex</c>, <c>...:opencode</c>, <c>...:qoder</c>).</summary>
 public sealed class AgentOptions
 {
     public bool Enabled { get; set; } = true;

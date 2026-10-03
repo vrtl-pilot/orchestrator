@@ -20,6 +20,7 @@ builder.Services.PostConfigure<OrchestratorOptions>(o => o.DataDirectory = Path.
 builder.Services.AddSingleton<IAgentAdapter, ClaudeCodeAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, CodexAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, OpenCodeAdapter>();
+builder.Services.AddSingleton<IAgentAdapter, QoderAdapter>();
 builder.Services.AddSingleton<AgentRegistry>();
 builder.Services.AddSingleton<ITaskStore>(sp =>
     new SqliteTaskStore(Path.Combine(sp.GetRequiredService<IOptions<OrchestratorOptions>>().Value.DataDirectory, "orchestrator.db")));

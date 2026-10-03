@@ -1,7 +1,7 @@
 # Agent Orchestrator + the coding-agent CLIs in one image.
 # Pin CLI versions (see docs: JSON output formats change between releases).
 #   docker build -t agent-orchestrator \
-#     --build-arg CLAUDE_CODE_VERSION=2.1.288 --build-arg CODEX_VERSION=<version> --build-arg OPENCODE_VERSION=1.18.34 .
+#     --build-arg CLAUDE_CODE_VERSION=2.1.288 --build-arg CODEX_VERSION=<version> --build-arg OPENCODE_VERSION=1.18.34 --build-arg QODER_VERSION=1.1.65 .
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -15,6 +15,7 @@ ARG NODE_MAJOR=22
 ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
 ARG OPENCODE_VERSION=latest
+ARG QODER_VERSION=latest
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates curl bash ripgrep \
@@ -24,6 +25,7 @@ RUN apt-get update \
       @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
       @openai/codex@${CODEX_VERSION} \
       opencode-ai@${OPENCODE_VERSION} \
+      @qoder-ai/qodercli@${QODER_VERSION} \
  && npm cache clean --force \
  && rm -rf /var/lib/apt/lists/*
 

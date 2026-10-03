@@ -22,14 +22,14 @@ public sealed class OrchestratorTools(TaskService tasks, IOptions<OrchestratorOp
 
     [McpServerTool(Name = "delegate_task", Destructive = false, OpenWorld = false)]
     [Description("""
-        Delegate a coding subtask to another coding agent (claude, codex or opencode). The orchestrator creates an
+        Delegate a coding subtask to another coding agent (claude, codex, opencode or qoder). The orchestrator creates an
         isolated git worktree + branch from your current HEAD (including your uncommitted changes by default), runs
         the agent there, commits its changes, optionally runs a test command, and returns a task id immediately.
         Then call wait_task. Write a self-contained brief: goal, constraints, relevant files, acceptance criteria.
         Your own working tree is never modified; you merge the result branch yourself when satisfied.
         """)]
     public async Task<string> DelegateTask(
-        [Description("Agent to use: 'claude', 'codex' or 'opencode'. Call list_agents to see what is available.")] string agent,
+        [Description("Agent to use: 'claude', 'codex', 'opencode' or 'qoder'. Call list_agents to see what is available.")] string agent,
         [Description("Self-contained task brief for the delegated agent.")] string prompt,
         [Description("Absolute path of the repository (any path inside it). Use your current working directory.")] string? repo_path = null,
         [Description("Optional commit-ish to branch from instead of your current HEAD + uncommitted changes.")] string? base_ref = null,

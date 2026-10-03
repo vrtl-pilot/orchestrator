@@ -15,7 +15,7 @@ return exitCode;
 internal static class Cli
 {
     private const string Usage = """
-        orch — delegate coding tasks to Claude Code, Codex or OpenCode via the Agent Orchestrator
+        orch — delegate coding tasks to Claude Code, Codex, OpenCode or Qoder via the Agent Orchestrator
 
         Usage:
           orch delegate <agent> [prompt...] [options]   Start a task (prompt from args, --prompt-file, or stdin)
@@ -98,7 +98,7 @@ internal static class Cli
 
     private static async Task<int> DelegateAsync(HttpClient http, List<string> positional, Dictionary<string, string?> flags)
     {
-        var agent = Require(positional, 0, "agent (claude, codex or opencode)");
+        var agent = Require(positional, 0, "agent (claude, codex, opencode or qoder)");
         string prompt;
         if (flags.GetValueOrDefault("prompt-file") is { } file) prompt = await File.ReadAllTextAsync(file);
         else if (positional.Count > 1) prompt = string.Join(' ', positional.Skip(1));

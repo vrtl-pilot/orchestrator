@@ -59,7 +59,9 @@ public sealed class ClaudeCodeAdapter : IAgentAdapter
             switch (root.Str("type"))
             {
                 case "system" when root.Str("subtype") == "init":
-                    yield return new ParsedEvent(AgentEventKind.Log, $"session {SessionId} · model {root.Str("model")}");
+                    // Claude Code puts session_id in the init frame; Qoder only in later frames.
+                    yield return new ParsedEvent(AgentEventKind.Log,
+                        SessionId is null ? $"model {root.Str("model")}" : $"session {SessionId} · model {root.Str("model")}");
                     break;
 
                 case "assistant":

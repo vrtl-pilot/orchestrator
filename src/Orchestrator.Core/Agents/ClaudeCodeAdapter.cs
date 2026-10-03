@@ -44,6 +44,7 @@ public sealed class ClaudeCodeAdapter : IAgentAdapter
         public string? SessionId { get; private set; }
         public string? FinalMessage { get; private set; }
         public string? Error { get; private set; }
+        public string? Model { get; private set; }
 
         public IEnumerable<ParsedEvent> ParseLine(string line)
         {
@@ -54,6 +55,20 @@ public sealed class ClaudeCodeAdapter : IAgentAdapter
             }
 
             SessionId = root.Str("session_id") ?? SessionId;
+
+            // The init frame names the configured model (Qoder may say "auto"); assistant messages name the model that
+            // actually answered, which is more precise. Synthetic messages (local errors) are not a model.
+            var reported = root.Str("type") switch
+            {
+                "system" when root.Str("subtype") == "init" => root.Str("model"),
+                "assistant" when root.Str("parent_tool_use_id") is null => root.Obj("message")?.Str("model"),
+                _ => null,
+            };
+            if (reported is { Length: > 0 } && !reported.StartsWith('<')
+                && (Model is null || (Model == "auto" && reported != "auto") || root.Str("type") == "assistant"))
+            {
+                Model = reported;
+            }
             var isSubagent = root.Str("parent_tool_use_id") is not null;
 
             switch (root.Str("type"))

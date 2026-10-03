@@ -10,6 +10,12 @@ public sealed record TaskView
 {
     public required string Id { get; init; }
     public required string Agent { get; init; }
+
+    /// <summary>Model requested for the task (null = the agent's default).</summary>
+    public string? Model { get; init; }
+
+    /// <summary>Model the agent actually used (reported by the agent, or its configured default).</summary>
+    public string? ModelUsed { get; init; }
     public required AgentTaskStatus Status { get; init; }
     public required string NextStep { get; init; }
 
@@ -45,6 +51,8 @@ public sealed record TaskView
     {
         Id = t.Id,
         Agent = t.Agent,
+        Model = t.Model,
+        ModelUsed = t.ModelUsed,
         Status = t.Status,
         NextStep = NextStepFor(t),
         NeedsAttention = t.Status is AgentTaskStatus.InputRequired or AgentTaskStatus.Failed

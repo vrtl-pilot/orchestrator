@@ -161,4 +161,75 @@ public class ParserTests
         Assert.Equal("do it", first.StandardInput);
         Assert.Equal(["-p", "--output-format", "stream-json", "--model", "auto", "--resume", "q-1", "--permission-mode", "accept_edits"], resumed.Arguments);
     }
+
+    [Fact]
+    public void Claude_model_comes_from_init_then_from_the_answering_message()
+    {
+        var parser = new ClaudeCodeAdapter().CreateParser();
+        parser.ParseLine("""{"type":"system","subtype":"init","session_id":"s","model":"claude-opus-5-5"}""").ToList();
+        Assert.Equal("claude-opus-5-5", parser.Model);
+
+        parser.ParseLine("""{"type":"assistant","session_id":"s","message":{"model":"claude-sonnet-5-5","content":[{"type":"text","text":"hi"}]}}""").ToList();
+        Assert.Equal("claude-sonnet-5-5", parser.Model);
+
+        // Subagent messages and synthetic (locally generated) messages don't change it.
+        parser.ParseLine("""{"type":"assistant","parent_tool_use_id":"x","message":{"model":"claude-haiku-4-5","content":[]}}""").ToList();
+        parser.ParseLine("""{"type":"assistant","message":{"model":"<synthetic>","content":[]}}""").ToList();
+        Assert.Equal("claude-sonnet-5-5", parser.Model);
+    }
+
+    [Fact]
+    public void Qoder_auto_model_is_replaced_by_the_concrete_one_when_reported()
+    {
+        var parser = new QoderAdapter().CreateParser();
+        parser.ParseLine("""{"type":"system","subtype":"init","model":"auto"}""").ToList();
+        Assert.Equal("auto", parser.Model);
+        parser.ParseLine("""{"type":"assistant","session_id":"q","message":{"model":"qwen3-coder-plus","content":[]}}""").ToList();
+        Assert.Equal("qwen3-coder-plus", parser.Model);
+    }
+
+    [Fact]
+    public void Codex_model_reroute_updates_the_model()
+    {
+        var parser = new CodexAdapter().CreateParser();
+        Assert.Null(parser.Model);
+        var evt = parser.ParseLine("""{"type":"item.completed","item":{"id":"i9","type":"error","message":"model rerouted: gpt-5.5 -> gpt-5.5-mini (Capacity)"}}""").Single();
+        Assert.Equal("gpt-5.5-mini", parser.Model);
+        Assert.Equal(AgentEventKind.Log, evt.Kind);
+    }
+
+    [Fact]
+    public void Codex_default_model_is_read_from_top_level_config_toml()
+    {
+        var file = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(file, "# my config\nmodel_reasoning_effort = \"high\"\nmodel = \"gpt-5.5\" # default\n\n[profiles.fast]\nmodel = \"gpt-5.5-mini\"\n");
+            Assert.Equal("gpt-5.5", CodexAdapter.ReadTopLevelTomlString(file, "model"));
+            File.WriteAllText(file, "[profiles.fast]\nmodel = \"x\"\n");
+            Assert.Null(CodexAdapter.ReadTopLevelTomlString(file, "model"));
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
+    public void OpenCode_model_comes_from_the_last_assistant_message_in_the_session_export()
+    {
+        const string export = """
+            Exporting session: ses_1
+            {
+              "info": { "id": "ses_1" },
+              "messages": [
+                { "info": { "role": "user" }, "parts": [] },
+                { "info": { "role": "assistant", "providerID": "openai", "modelID": "gpt-5.5" }, "parts": [] },
+                { "info": { "role": "assistant", "providerID": "github-copilot", "modelID": "claude-sonnet-5-5" }, "parts": [] }
+              ]
+            }
+            """;
+        Assert.Equal("github-copilot/claude-sonnet-5-5", OpenCodeAdapter.ModelFromExport(export));
+        Assert.Null(OpenCodeAdapter.ModelFromExport("not json"));
+    }
 }

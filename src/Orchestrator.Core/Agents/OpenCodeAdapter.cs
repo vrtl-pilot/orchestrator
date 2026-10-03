@@ -1,4 +1,7 @@
+using System.Text;
+using System.Text.Json;
 using Orchestrator.Core.Model;
+using Orchestrator.Core.Processes;
 
 namespace Orchestrator.Core.Agents;
 
@@ -40,6 +43,64 @@ public sealed class OpenCodeAdapter : IAgentAdapter
     }
 
     public IAgentOutputParser CreateParser() => new Parser();
+
+    /// <summary>
+    /// <c>opencode run --format json</c> does not name the model, but <c>opencode export &lt;session&gt;</c> lists the
+    /// session's messages with their <c>providerID</c>/<c>modelID</c>; use the last assistant message.
+    /// </summary>
+    public async Task<string?> ResolveModelAsync(AgentTask task, AgentOptions options, CancellationToken ct)
+    {
+        if (task.SessionId is null || task.WorktreePath is null || !Directory.Exists(task.WorktreePath)) return null;
+
+        var stdout = new StringBuilder();
+        var env = options.Environment.ToDictionary(kv => kv.Key, kv => (string?)kv.Value);
+        env.TryAdd("OPENCODE_DISABLE_AUTOUPDATE", "1");
+        try
+        {
+            var outcome = await ProcessRunner.RunAsync(
+                new ProcessSpec
+                {
+                    FileName = options.Executable ?? DefaultExecutable,
+                    Arguments = ["export", task.SessionId],
+                    WorkingDirectory = task.WorktreePath,
+                    Environment = env,
+                    Timeout = TimeSpan.FromSeconds(60),
+                },
+                line => stdout.AppendLine(line),
+                _ => { },
+                ct);
+            return outcome.Succeeded ? ModelFromExport(stdout.ToString()) : null;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+    }
+
+    internal static string? ModelFromExport(string json)
+    {
+        var start = json.IndexOf('{');
+        if (start < 0) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(json[start..]);
+            if (doc.RootElement.Obj("messages") is not { ValueKind: JsonValueKind.Array } messages) return null;
+            string? found = null;
+            foreach (var message in messages.EnumerateArray())
+            {
+                var info = message.Obj("info");
+                if (info?.Str("role") == "assistant" && info?.Str("modelID") is { Length: > 0 } modelId)
+                {
+                    found = info?.Str("providerID") is { Length: > 0 } provider ? $"{provider}/{modelId}" : modelId;
+                }
+            }
+            return found;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     public string? GetWatchCommand(AgentTask task, AgentOptions options)
     {

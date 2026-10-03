@@ -39,6 +39,35 @@ public sealed class CodexAdapter : IAgentAdapter
 
     public IAgentOutputParser CreateParser() => new Parser();
 
+    /// <summary>The model Codex uses when none is requested: top-level <c>model</c> in <c>$CODEX_HOME/config.toml</c>.</summary>
+    public Task<string?> ResolveModelAsync(AgentTask task, AgentOptions options, CancellationToken ct)
+    {
+        var home = options.Environment.GetValueOrDefault("CODEX_HOME")
+                   ?? Environment.GetEnvironmentVariable("CODEX_HOME")
+                   ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+        var model = ReadTopLevelTomlString(Path.Combine(home, "config.toml"), "model");
+        return Task.FromResult<string?>(model is null ? "codex default" : $"{model} (config.toml default)");
+    }
+
+    /// <summary>Reads <c>key = "value"</c> before the first <c>[table]</c> header. Enough for Codex's flat defaults.</summary>
+    internal static string? ReadTopLevelTomlString(string path, string key)
+    {
+        if (!File.Exists(path)) return null;
+        foreach (var raw in File.ReadLines(path))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith('[')) break;
+            if (line.StartsWith('#') || !line.StartsWith(key, StringComparison.Ordinal)) continue;
+            var rest = line[key.Length..].TrimStart();
+            if (!rest.StartsWith('=')) continue;
+            var value = rest[1..].Trim();
+            var hash = value.IndexOf(" #", StringComparison.Ordinal);
+            if (hash >= 0) value = value[..hash].Trim();
+            return value.Trim('"', '\'').Trim() is { Length: > 0 } v ? v : null;
+        }
+        return null;
+    }
+
     public string? GetWatchCommand(AgentTask task, AgentOptions options) =>
         task.SessionId is null || task.WorktreePath is null
             ? null
@@ -50,6 +79,9 @@ public sealed class CodexAdapter : IAgentAdapter
         public string? SessionId { get; private set; }
         public string? FinalMessage { get; private set; }
         public string? Error { get; private set; }
+
+        /// <summary><c>codex exec --json</c> does not name its model, except when it reroutes to another one.</summary>
+        public string? Model { get; private set; }
 
         public IEnumerable<ParsedEvent> ParseLine(string line)
         {
@@ -112,6 +144,11 @@ public sealed class CodexAdapter : IAgentAdapter
                     return new ParsedEvent(AgentEventKind.ToolCall, "web_search", item.Str("query"));
                 case "todo_list":
                     return new ParsedEvent(AgentEventKind.ToolCall, "todo_list", JsonLine.Compact(item.Obj("items")));
+                case "error" when item.Str("message") is { } m && m.StartsWith("model rerouted:", StringComparison.Ordinal):
+                    // "model rerouted: <from> -> <to> (<reason>)"
+                    var to = m["model rerouted:".Length..].Split("->", 2) is [_, var rest] ? rest.Trim().Split(' ')[0] : null;
+                    if (to is { Length: > 0 }) Model = to;
+                    return new ParsedEvent(AgentEventKind.Log, m);
                 case "error":
                     return new ParsedEvent(AgentEventKind.Error, item.Str("message") ?? "error");
                 default:

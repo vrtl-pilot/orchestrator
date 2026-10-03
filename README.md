@@ -30,6 +30,20 @@ Background research and design rationale: [docs/research/multi-agent-orchestrati
   so `grep`/`test -f` work). A failure is flagged (`needsAttention`, an amber "tests failed" chip) even if the agent claims success.
 - **Survive restarts**: all state is in SQLite + JSONL event logs. A fresh Claude session can `list_tasks`.
 
+## Which model is used?
+
+Each task shows the model in the dashboard (task list, header and a **Model** row), in `orch get`/`orch list` (`modelUsed`) and as a
+`model: …` line in the live feed:
+
+| Agent | Where the model comes from |
+|---|---|
+| Claude Code, Qoder | Reported live by the agent's own output (the model that actually answered; Qoder's `auto` is replaced by the concrete model when it reports one) |
+| OpenCode | Read after each turn from `opencode export <session>` (`provider/model`) |
+| Codex | The requested model, a reroute notice from Codex, or your `~/.codex/config.toml` default (Codex's JSON output doesn't name its model) |
+
+Pick a model per task with `model` (MCP / API), `--model` (`orch`), or the New task form. Set a per-agent default with
+`Orchestrator:Agents:<name>:Model`. If you request a model and the agent reports a different one, the dashboard shows both.
+
 ## Can I see what a delegated agent is doing?
 
 Yes. A headless child process has no window of its own, so the orchestrator makes the work visible in four ways:
@@ -86,10 +100,22 @@ codex mcp add orchestrator --url http://127.0.0.1:7777/mcp
 qodercli mcp add --scope user --transport http orchestrator http://127.0.0.1:7777/mcp
 ```
 
+**OpenCode**: add the server to OpenCode's global config, `~/.config/opencode/opencode.json`
+(Windows: `%USERPROFILE%\.config\opencode\opencode.json`; create the folder/file if missing). If the file already has content,
+merge the `mcp` block into it rather than replacing the file:
+
 ```jsonc
-// ~/.config/opencode/opencode.json (global, all projects; a project's own opencode.json works too)
-{ "mcp": { "orchestrator": { "type": "remote", "url": "http://127.0.0.1:7777/mcp", "enabled": true } } }
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "orchestrator": { "type": "remote", "url": "http://127.0.0.1:7777/mcp", "enabled": true }
+  }
+}
 ```
+
+Or run `opencode mcp add` and answer the prompts (remote, URL `http://127.0.0.1:7777/mcp`). Check with `opencode mcp list`:
+`orchestrator` should show as connected while the orchestrator runs. If you set `Orchestrator:ApiKey`, add
+`"headers": { "X-Orchestrator-Key": "<key>" }` to the entry. A project's own `opencode.json` can hold the same block.
 
 `codex mcp add` writes to `~/.codex/config.toml`, which is global. The Qoder command above uses `--scope user` for the same reason.
 

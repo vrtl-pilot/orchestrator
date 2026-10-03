@@ -235,6 +235,14 @@ public sealed class TaskRunner(
                 {
                     events.Append(task.Id, evt.Kind, evt.Text, evt.Detail);
                 }
+                if (parser.Model is { } reported && reported != task.ModelUsed)
+                {
+                    // Show the model as soon as the agent names it, not only when the turn ends.
+                    task.ModelUsed = reported;
+                    events.Append(task.Id, AgentEventKind.Log, $"model: {reported}");
+                    store.SaveAsync(task, CancellationToken.None).GetAwaiter().GetResult();
+                    coordination.NotifyChanged(task.Id);
+                }
             },
             line =>
             {
@@ -247,6 +255,26 @@ public sealed class TaskRunner(
         task.NextMessage = null;
         if (parser.SessionId is not null) task.SessionId = parser.SessionId;
         task.WatchCommand = adapter.GetWatchCommand(task, agentOptions);
+        if (parser.Model is null && outcome.Reason == ProcessEndReason.Exited)
+        {
+            var model = task.Model ?? agentOptions.Model;  // Passed explicitly, so this is what ran.
+            if (model is null)
+            {
+                try
+                {
+                    model = await adapter.ResolveModelAsync(task, agentOptions, CancellationToken.None);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    logger.LogDebug(ex, "Could not resolve the model for task {TaskId}", task.Id);
+                }
+            }
+            if (model is not null && model != task.ModelUsed)
+            {
+                task.ModelUsed = model;
+                events.Append(task.Id, AgentEventKind.Log, $"model: {model}");
+            }
+        }
         await store.SaveAsync(task, CancellationToken.None);
 
         var finalMessage = parser.FinalMessage;

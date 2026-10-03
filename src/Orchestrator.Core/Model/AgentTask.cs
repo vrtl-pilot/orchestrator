@@ -67,6 +67,7 @@ public sealed class AgentTask
     public required string RepoRoot { get; init; }
     public string? BaseRef { get; init; }
     public bool IncludeUncommitted { get; init; } = true;
+    /// <summary>Model requested for this task (null = the agent's own default).</summary>
     public string? Model { get; init; }
     public string? TestCommand { get; init; }
     public int? TimeoutMinutes { get; init; }
@@ -91,6 +92,9 @@ public sealed class AgentTask
     /// </summary>
     public bool BaseIncludesUncommitted { get; set; }
     public string? HeadSha { get; set; }
+
+    /// <summary>Model the agent actually used, as reported by the agent (or its config default when it doesn't say).</summary>
+    public string? ModelUsed { get; set; }
 
     // Agent session (used to resume after input-required or for follow-ups)
     public string? SessionId { get; set; }

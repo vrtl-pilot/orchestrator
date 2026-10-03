@@ -46,6 +46,9 @@ public interface IAgentOutputParser
 
     /// <summary>An error the agent itself reported (as opposed to a process failure).</summary>
     string? Error { get; }
+
+    /// <summary>The model the agent reports using, if its output says (null when it doesn't).</summary>
+    string? Model => null;
 }
 
 /// <summary>Drives one coding agent CLI. Implementations are stateless; per-turn state lives in the parser.</summary>
@@ -65,4 +68,10 @@ public interface IAgentAdapter
 
     /// <summary>How to install the CLI, shown when it cannot be found.</summary>
     string? InstallHint => null;
+
+    /// <summary>
+    /// Fallback when the agent's stream does not name its model: ask the agent (e.g. export the session) or read
+    /// its default from config. Returned as a display string such as <c>gpt-5.5 (config.toml default)</c>.
+    /// </summary>
+    Task<string?> ResolveModelAsync(AgentTask task, AgentOptions options, CancellationToken ct) => Task.FromResult<string?>(null);
 }

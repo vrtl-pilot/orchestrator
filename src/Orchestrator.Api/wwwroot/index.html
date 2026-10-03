@@ -29,6 +29,7 @@ main { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; height: c
 .task:hover, .task.active { background: var(--code-bg); }
 .task .row { display: flex; justify-content: space-between; gap: 8px; }
 .task .id { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.task .model { font-family: var(--mono); font-size: 11px; color: var(--accent); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .task .prompt { margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip { font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid currentColor; white-space: nowrap; }
 .s-running, .s-preparing, .s-testing, .s-queued { color: var(--accent); }
@@ -92,6 +93,8 @@ async function api(path, opts = {}) {
 const chip = (s, t) => t && s === "completed" && t.testsPassed === false
   ? `<span class="chip s-input_required">completed · tests failed</span>`
   : `<span class="chip s-${s}">${s.replace("_", " ")}</span>`;
+// Model actually used if known, else what was requested, else the agent's default.
+const modelLabel = t => t.modelUsed || (t.model ? `${t.model} (requested)` : "agent default");
 const time = ts => new Date(ts).toLocaleTimeString([], { hour12: false });
 
 async function refreshList() {
@@ -100,6 +103,7 @@ async function refreshList() {
     $("#list").innerHTML = tasks.length ? tasks.map(t => `
       <div class="task ${t.id === selected ? "active" : ""}" data-id="${t.id}">
         <div class="row"><span class="id">${t.id} · ${t.agent}</span>${chip(t.status, t)}</div>
+        <div class="model">${esc(modelLabel(t))}</div>
         <div class="prompt">${esc(t.pendingQuestion || t.summary || t.error || t.branch || "")}</div>
       </div>`).join("") : `<p style="padding:14px;color:var(--muted)">No tasks yet.</p>`;
     $("#list").querySelectorAll(".task").forEach(el => el.onclick = () => select(el.dataset.id));
@@ -124,8 +128,9 @@ function renderTask(t, force) {
   card.dataset.updated = t.updatedAt; card.dataset.status = t.status;
   card.innerHTML = `
     <div class="card">
-      <h2>${esc(t.id)} ${chip(t.status, t)} <span style="color:var(--muted);font-weight:400">${esc(t.agent)} · turn ${t.turns}</span></h2>
+      <h2>${esc(t.id)} ${chip(t.status, t)} <span style="color:var(--muted);font-weight:400">${esc(t.agent)} · ${esc(modelLabel(t))} · turn ${t.turns}</span></h2>
       <div class="kv">
+        <div>Model</div><div><code>${esc(t.modelUsed || "—")}</code>${t.model && t.model !== t.modelUsed ? ` <span style="color:var(--muted)">(requested: ${esc(t.model)})</span>` : ""}${!t.modelUsed && ["queued","preparing","running"].includes(t.status) ? ` <span style="color:var(--muted)">detecting…</span>` : ""}</div>
         <div>Branch</div><div><code>${esc(t.branch || "—")}</code></div>
         <div>Worktree</div><div><code>${esc(t.worktreePath || "—")}</code></div>
         <div>Changes</div><div>${t.changedFileCount} file(s)${t.testsPassed == null ? "" : t.testsPassed ? " · tests passed" : " · <span style='color:var(--err)'>tests failed</span>"}</div>
@@ -191,7 +196,7 @@ function newTaskForm() {
       <form class="new" id="newForm">
         <div class="two">
           <label>Agent<select name="agent" id="agentSel"></select></label>
-          <label>Model (optional)<input name="model" placeholder="agent default"></label>
+          <label>Model (optional)<input name="model" id="modelInput" placeholder="agent default"></label>
         </div>
         <label>Repository path<input name="repoPath" placeholder="/path/to/repo" required></label>
         <label>Task brief<textarea name="prompt" rows="6" required placeholder="Goal, constraints, files, acceptance criteria"></textarea></label>
@@ -201,7 +206,15 @@ function newTaskForm() {
         </div>
         <div class="actions"><button class="primary">Start</button></div>
       </form></div>`;
-  api("/api/agents").then(list => $("#agentSel").innerHTML = list.map(a => `<option ${a.available ? "" : "disabled"}>${a.name}</option>`).join(""));
+  api("/api/agents").then(list => {
+    const sel = $("#agentSel");
+    sel.innerHTML = list.map(a => `<option ${a.available ? "" : "disabled"}>${a.name}</option>`).join("");
+    const hint = () => {
+      const a = list.find(x => x.name === sel.value);
+      $("#modelInput").placeholder = a?.model ? `default: ${a.model}` : "agent's own default";
+    };
+    sel.onchange = hint; hint();
+  });
   $("#newForm").onsubmit = async ev => {
     ev.preventDefault();
     const body = Object.fromEntries([...new FormData(ev.target)].filter(([, v]) => v));

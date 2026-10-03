@@ -198,6 +198,23 @@ public sealed class EndToEndTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Model_used_is_recorded_from_the_agent_or_the_request()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        // MODEL: the fake agent names its model in the init frame, like Claude Code / Qoder.
+        var reported = await _service.DelegateAsync(new DelegateRequest { Agent = "fake", Prompt = "MODEL", RepoPath = _repo.Root });
+        var r = await _service.WaitAsync(reported.Id, TimeSpan.FromSeconds(60));
+        Assert.Equal("fake-model-1", r.ModelUsed);
+        Assert.Contains(_events.Read(reported.Id), e => e.Text == "model: fake-model-1");
+
+        // DONE does not name a model: the requested one (passed to the CLI) is recorded.
+        var requested = await _service.DelegateAsync(new DelegateRequest { Agent = "fake", Prompt = "DONE", RepoPath = _repo.Root, Model = "my-model" });
+        var q = await _service.WaitAsync(requested.Id, TimeSpan.FromSeconds(60));
+        Assert.Equal("my-model", q.ModelUsed);
+    }
+
+    [Fact]
     public async Task Cleanup_with_force_discards_an_unmerged_branch()
     {
         if (OperatingSystem.IsWindows()) return;
@@ -312,6 +329,10 @@ public sealed class EndToEndTests : IAsyncLifetime
             input=$(cat)
             case "$input" in
               *SLEEP*) sleep 30 ;;
+              *MODEL*)
+                printf '%s\n' '{"type":"system","subtype":"init","session_id":"fake-session","model":"fake-model-1"}'
+                printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"fake-session"}'
+                ;;
               *DONE*)
                 echo "done" > done.txt
                 printf '%s\n' '{"type":"system","subtype":"init","session_id":"fake-session"}'

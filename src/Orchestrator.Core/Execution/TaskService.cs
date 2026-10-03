@@ -159,8 +159,11 @@ public sealed class TaskService(
         return task;
     }
 
-    /// <summary>Removes the task's worktree (and optionally its branch) once the caller has integrated or discarded it.</summary>
-    public async Task<AgentTask> CleanupAsync(string id, bool deleteBranch, CancellationToken ct = default)
+    /// <summary>
+    /// Removes the task's worktree once the caller has integrated or discarded it. With <paramref name="deleteBranch"/>
+    /// the branch is deleted only if it is merged into the repository's current HEAD, unless <paramref name="force"/>.
+    /// </summary>
+    public async Task<AgentTask> CleanupAsync(string id, bool deleteBranch, bool force = false, CancellationToken ct = default)
     {
         using var _ = await coordination.LockAsync(id, ct);
         var task = await RequireAsync(id, ct);
@@ -168,16 +171,39 @@ public sealed class TaskService(
         {
             throw new OrchestratorException($"Task {id} is {task.Status}; cancel it before cleaning up.");
         }
+
+        var notes = new List<string>();
         if (task.WorktreePath is not null)
         {
-            await worktrees.RemoveAsync(task.RepoRoot, task.WorktreePath, task.Branch, deleteBranch, ct);
+            await worktrees.RemoveAsync(task.RepoRoot, task.WorktreePath, task.Branch, deleteBranch: false, ct);
             await GitClient.RunAsync(task.RepoRoot, ["update-ref", "-d", $"refs/orchestrator/base/{task.Id}"], cancellationToken: ct);
-            events.Append(id, AgentEventKind.Log, deleteBranch ? "worktree and branch removed" : "worktree removed (branch kept)");
             task.WorktreePath = null;
-            if (deleteBranch) task.Branch = null;
-            await store.SaveAsync(task, ct);
-            coordination.NotifyChanged(id);
+            notes.Add("worktree removed");
         }
+
+        if (deleteBranch && task.Branch is not null)
+        {
+            var result = await worktrees.DeleteBranchAsync(task.RepoRoot, task.Branch, force, task.PatchPath, ct);
+            if (result.Deleted)
+            {
+                notes.Add(result.Merged ? $"branch {task.Branch} deleted (integrated)" : $"branch {task.Branch} deleted (unmerged work discarded, force)");
+                task.Branch = null;
+            }
+            else
+            {
+                notes.Add($"branch {task.Branch} kept: its changes are not in {result.CurrentBranch ?? "HEAD"} (not merged, patch not applied). "
+                          + "Integrate it first (see nextStep), or clean up with force=true to discard the work");
+            }
+        }
+        else if (task.Branch is not null)
+        {
+            notes.Add($"branch {task.Branch} kept");
+        }
+
+        task.Notice = notes.Count == 0 ? "nothing to clean up" : string.Join("; ", notes) + ".";
+        events.Append(id, AgentEventKind.Log, task.Notice);
+        await store.SaveAsync(task, ct);
+        coordination.NotifyChanged(id);
         return task;
     }
 
@@ -193,6 +219,7 @@ public sealed class TaskService(
     {
         task.NextMessage = message;
         task.PendingQuestion = null;
+        task.Notice = null;
         task.Error = null;
         task.Status = AgentTaskStatus.Queued;
         task.CompletedAt = null;

@@ -13,6 +13,7 @@ public sealed class OutputTail(int maxChars)
     {
         lock (_lock)
         {
+            line = Ansi.Strip(line);
             _lines.AddLast(line);
             _chars += line.Length + 1;
             while (_chars > maxChars && _lines.Count > 1)

@@ -58,6 +58,36 @@ public static class ExecutableResolver
         return null;
     }
 
+    /// <summary>
+    /// Locates Git for Windows' <c>bash.exe</c> (which ships grep, sed, etc.) so POSIX-style test commands work on Windows.
+    /// Order: <c>CLAUDE_CODE_GIT_BASH_PATH</c>, next to the <c>git.exe</c> on PATH, <c>%ProgramFiles%\Git</c>.
+    /// Never returns <c>System32\bash.exe</c>, which is WSL (a different filesystem).
+    /// </summary>
+    public static string? FindGitBash() =>
+        FindGitBash(
+            Environment.GetEnvironmentVariable("CLAUDE_CODE_GIT_BASH_PATH"),
+            Find("git"),
+            Environment.GetEnvironmentVariable("ProgramFiles"));
+
+    internal static string? FindGitBash(string? explicitPath, string? gitExePath, string? programFiles)
+    {
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(explicitPath)) candidates.Add(explicitPath);
+        if (!string.IsNullOrWhiteSpace(gitExePath))
+        {
+            // <git>\cmd\git.exe, <git>\bin\git.exe or <git>\mingw64\bin\git.exe -> <git>\bin\bash.exe
+            var dir = Path.GetDirectoryName(gitExePath);
+            for (var i = 0; i < 3 && dir is not null; i++, dir = Path.GetDirectoryName(dir))
+            {
+                candidates.Add(Path.Combine(dir, "bin", "bash.exe"));
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(programFiles)) candidates.Add(Path.Combine(programFiles, "Git", "bin", "bash.exe"));
+
+        return candidates.FirstOrDefault(c =>
+            File.Exists(c) && !c.Replace('/', '\\').Contains("\\System32\\", StringComparison.OrdinalIgnoreCase));
+    }
+
     private static bool IsExecutable(string path)
     {
         if (OperatingSystem.IsWindows()) return true;

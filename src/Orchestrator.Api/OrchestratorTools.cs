@@ -131,10 +131,14 @@ public sealed class OrchestratorTools(TaskService tasks, IOptions<OrchestratorOp
     }
 
     [McpServerTool(Name = "cleanup_task", Destructive = true)]
-    [Description("Remove a finished task's worktree after you merged or discarded it. Set delete_branch=true to also delete its branch.")]
-    public async Task<string> CleanupTask(string task_id, bool delete_branch = false, CancellationToken cancellationToken = default)
+    [Description("""
+        Remove a finished task's worktree after you have merged (or decided to discard) its branch.
+        delete_branch=true deletes the branch only if it is merged into the repository's current HEAD; otherwise the
+        branch is kept and the notice field says so. Pass force=true only to deliberately discard unmerged work.
+        """)]
+    public async Task<string> CleanupTask(string task_id, bool delete_branch = false, bool force = false, CancellationToken cancellationToken = default)
     {
-        var task = await Guard(() => tasks.CleanupAsync(task_id, delete_branch, cancellationToken));
+        var task = await Guard(() => tasks.CleanupAsync(task_id, delete_branch, force, cancellationToken));
         return Json(TaskView.From(task, _publicUrl, compact: true));
     }
 

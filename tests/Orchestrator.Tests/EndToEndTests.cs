@@ -30,13 +30,13 @@ public sealed class EndToEndTests : IAsyncLifetime
         {
             DataDirectory = _data,
             IdleTimeoutMinutes = 1,
-            Agents = { ["fake"] = new AgentOptions() },
+            Agents = { ["fake"] = new AgentOptions(), ["broken"] = new AgentOptions() },
         });
         var store = new SqliteTaskStore(Path.Combine(_data, "orchestrator.db"));
         _events = new TaskEventLog(_data);
         var coordination = new TaskCoordination();
         _agent = new FakeAgent();
-        var registry = new AgentRegistry([_agent, new MissingAgent()], options);
+        var registry = new AgentRegistry([_agent, new MissingAgent(), new BrokenAgent(_data)], options);
         var worktrees = new WorktreeManager(options);
         _service = new TaskService(store, _events, coordination, registry, worktrees, options);
         _runner = new TaskRunner(store, _events, coordination, registry, worktrees, options, NullLogger<TaskRunner>.Instance);
@@ -146,6 +146,86 @@ public sealed class EndToEndTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Cleanup_keeps_an_unmerged_branch_and_deletes_it_once_merged()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var task = await _service.DelegateAsync(new DelegateRequest { Agent = "fake", Prompt = "DONE", RepoPath = _repo.Root });
+        var done = await _service.WaitAsync(task.Id, TimeSpan.FromSeconds(60));
+        Assert.Equal(AgentTaskStatus.Completed, done.Status);
+        var branch = done.Branch!;
+
+        var kept = await _service.CleanupAsync(task.Id, deleteBranch: true);
+        Assert.Null(kept.WorktreePath);
+        Assert.Equal(branch, kept.Branch);
+        Assert.Contains("not merged, patch not applied", kept.Notice);
+        Assert.Contains(branch, await _repo.GitAsync("branch", "--list"));
+
+        await _repo.GitAsync("merge", "-q", "--no-ff", "-m", "merge", branch);
+        var deleted = await _service.CleanupAsync(task.Id, deleteBranch: true);
+        Assert.Null(deleted.Branch);
+        Assert.Contains("deleted (integrated)", deleted.Notice);
+        Assert.DoesNotContain(branch, await _repo.GitAsync("branch", "--list"));
+    }
+
+    [Fact]
+    public async Task Task_based_on_uncommitted_work_is_integrated_by_applying_its_patch()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        // The caller has an uncommitted edit; the task starts from a snapshot that includes it.
+        _repo.Write("README.md", "hello\nlocal edit\n");
+        var task = await _service.DelegateAsync(new DelegateRequest { Agent = "fake", Prompt = "DONE", RepoPath = _repo.Root });
+        var done = await _service.WaitAsync(task.Id, TimeSpan.FromSeconds(60));
+        Assert.Equal(AgentTaskStatus.Completed, done.Status);
+        Assert.True(done.BaseIncludesUncommitted);
+
+        var view = Orchestrator.Api.TaskView.From(done, publicUrl: null);
+        Assert.Contains("do NOT git merge", view.NextStep);
+
+        // The patch holds only the agent's change and applies onto the still-dirty working tree.
+        var patch = await File.ReadAllTextAsync(done.PatchPath!);
+        Assert.Contains("done.txt", patch);
+        Assert.DoesNotContain("local edit", patch);
+        await _repo.GitAsync("apply", done.PatchPath!);
+        Assert.True(File.Exists(Path.Combine(_repo.Root, "done.txt")));
+        Assert.Equal("hello\nlocal edit\n", File.ReadAllText(Path.Combine(_repo.Root, "README.md")));
+
+        // Cleanup recognises the applied patch as integrated and deletes the branch without force.
+        var cleaned = await _service.CleanupAsync(task.Id, deleteBranch: true);
+        Assert.Null(cleaned.Branch);
+        Assert.Contains("deleted (integrated)", cleaned.Notice);
+    }
+
+    [Fact]
+    public async Task Cleanup_with_force_discards_an_unmerged_branch()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var task = await _service.DelegateAsync(new DelegateRequest { Agent = "fake", Prompt = "DONE", RepoPath = _repo.Root });
+        var done = await _service.WaitAsync(task.Id, TimeSpan.FromSeconds(60));
+
+        var result = await _service.CleanupAsync(task.Id, deleteBranch: true, force: true);
+
+        Assert.Null(result.Branch);
+        Assert.Contains("discarded", result.Notice);
+        Assert.DoesNotContain(done.Branch!, await _repo.GitAsync("branch", "--list"));
+    }
+
+    [Fact]
+    public async Task Agent_that_cannot_be_started_fails_with_a_clear_message()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var task = await _service.DelegateAsync(new DelegateRequest { Agent = "broken", Prompt = "x", RepoPath = _repo.Root });
+        var result = await _service.WaitAsync(task.Id, TimeSpan.FromSeconds(30));
+
+        Assert.Equal(AgentTaskStatus.Failed, result.Status);
+        Assert.StartsWith("Could not start", result.Error);
+        Assert.Contains("Orchestrator:Agents:broken:Executable", result.Error);
+    }
+
+    [Fact]
     public async Task Same_client_request_id_returns_the_same_task()
     {
         var a = await _service.DelegateAsync(new DelegateRequest { Agent = "fake", Prompt = "SLEEP", RepoPath = _repo.Root, ClientRequestId = "k1" });
@@ -170,6 +250,27 @@ public sealed class EndToEndTests : IAsyncLifetime
         await _service.CancelAsync(child.Id);
     }
 
+    /// <summary>An "executable" that exists and has the execute bit but is not a valid program.</summary>
+    private sealed class BrokenAgent : IAgentAdapter
+    {
+        private readonly string _path;
+
+        public BrokenAgent(string dataDir)
+        {
+            Directory.CreateDirectory(dataDir);
+            _path = Path.Combine(dataDir, "broken-agent");
+            File.WriteAllBytes(_path, [0x00, 0x01, 0x02, 0x03]);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(_path, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        }
+
+        public string Name => "broken";
+        public string DefaultExecutable => _path;
+        public AgentInvocation BuildInvocation(AgentTurnContext context) =>
+            new() { Executable = _path, Arguments = [], StandardInput = context.Message };
+        public IAgentOutputParser CreateParser() => new ClaudeCodeAdapter().CreateParser();
+        public string? GetWatchCommand(AgentTask task, AgentOptions options) => null;
+    }
+
     private sealed class MissingAgent : IAgentAdapter
     {
         public string Name => "missing";
@@ -190,6 +291,11 @@ public sealed class EndToEndTests : IAsyncLifetime
             input=$(cat)
             case "$input" in
               *SLEEP*) sleep 30 ;;
+              *DONE*)
+                echo "done" > done.txt
+                printf '%s\n' '{"type":"system","subtype":"init","session_id":"fake-session"}'
+                printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"Wrote done.txt.","session_id":"fake-session"}'
+                ;;
               *"Answer from the requester"*)
                 echo "parent session: ${CLAUDE_CODE_SESSION_ID:-none}" > fake.txt
                 printf '%s\n' '{"type":"system","subtype":"init","session_id":"fake-session"}'

@@ -96,4 +96,19 @@ public class ParserTests
         parser.ParseLine("""{"type":"error","sessionID":"ses_1","error":{"name":"ProviderAuthError","data":{"message":"no credentials"}}}""").ToList();
         Assert.Equal("no credentials", parser.Error);
     }
+
+    [Fact]
+    public void OpenCode_windows_shell_tool_and_edit_without_filePath_are_labelled_correctly()
+    {
+        // Shapes seen on Windows with OpenCode 1.18: the shell tool is "shell", and the edit event's
+        // title repeats the tool name while the path is only in the output.
+        var parser = new OpenCodeAdapter().CreateParser();
+        var shell = parser.ParseLine("""{"type":"tool_use","sessionID":"s","part":{"type":"tool","tool":"shell","state":{"status":"completed","title":"shell","input":{"command":"Select-String Contributing README.md"},"output":"README.md:12:## Contributing"}}}""").Single();
+        var edit = parser.ParseLine("""{"type":"tool_use","sessionID":"s","part":{"type":"tool","tool":"edit","state":{"status":"completed","title":"edit","input":{},"output":"Edited README.md (1 replacement)"}}}""").Single();
+        var write = parser.ParseLine("""{"type":"tool_use","sessionID":"s","part":{"type":"tool","tool":"write","state":{"status":"completed","input":{"path":"docs/a.md"}}}}""").Single();
+
+        Assert.Equal((AgentEventKind.Command, "Select-String Contributing README.md"), (shell.Kind, shell.Text));
+        Assert.Equal((AgentEventKind.FileChange, "edit Edited README.md (1 replacement)"), (edit.Kind, edit.Text));
+        Assert.Equal((AgentEventKind.FileChange, "write docs/a.md"), (write.Kind, write.Text));
+    }
 }

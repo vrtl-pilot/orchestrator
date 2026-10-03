@@ -44,10 +44,14 @@ public class WorktreeManagerTests
         Assert.True(await manager.CommitAllAsync(wt.Path, "agent work"));
         Assert.False(await manager.CommitAllAsync(wt.Path, "nothing left"));
 
-        var diff = await manager.DiffAsync(wt.Path, wt.BaseSha);
+        var diff = await manager.DiffAsync(wt.Path, wt.BaseSha, Path.Combine(repo.Root, "..", Path.GetFileName(repo.Root) + ".patch"));
         Assert.Contains(diff.Files, f => f is { Status: "A", Path: "feature.txt" });
         Assert.Contains(diff.Files, f => f is { Status: "D", Path: "README.md" });
-        Assert.Contains("feature.txt", diff.Patch);
+        var patch = File.ReadAllText(diff.PatchPath);
+        Assert.Contains("feature.txt", patch);
+        Assert.EndsWith("\n", patch); // Regression: a patch without its final newline is "corrupt" for git apply.
+        Assert.DoesNotContain("\r\n", patch);
+        File.Delete(diff.PatchPath);
 
         // The caller can merge the branch like any other.
         await repo.GitAsync("merge", "-q", "--no-ff", "-m", "merge agent work", wt.Branch);

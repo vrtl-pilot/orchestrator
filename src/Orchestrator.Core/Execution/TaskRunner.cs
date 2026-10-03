@@ -132,6 +132,7 @@ public sealed class TaskRunner(
                 task.WorktreePath = wt.Path;
                 task.Branch = wt.Branch;
                 task.BaseSha = wt.BaseSha;
+                task.BaseIncludesUncommitted = wt.IncludesUncommittedChanges;
                 events.Append(task.Id, AgentEventKind.Log,
                     $"worktree {wt.Path} on {wt.Branch} from {wt.BaseSha[..Math.Min(12, wt.BaseSha.Length)]}"
                     + (wt.IncludesUncommittedChanges ? " (includes your uncommitted changes)" : ""));
@@ -200,7 +201,24 @@ public sealed class TaskRunner(
         env["ORCHESTRATOR_TASK_ID"] = task.Id;
         env["ORCHESTRATOR_TASK_DEPTH"] = task.Depth.ToString();
 
-        var outcome = await ProcessRunner.RunAsync(
+        ProcessOutcome outcome;
+        try
+        {
+            outcome = await RunAgentProcessAsync();
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            var resolved = ExecutableResolver.Find(invocation.Executable) ?? invocation.Executable;
+            await FinishAsync(task.Id, t =>
+            {
+                t.Status = AgentTaskStatus.Failed;
+                t.Error = $"Could not start '{resolved}' ({ex.Message}). Check that the {t.Agent} CLI is installed and set "
+                          + $"Orchestrator:Agents:{t.Agent}:Executable to its full path (on Windows, the .cmd or .exe file).";
+            }, task);
+            return null;
+        }
+
+        Task<ProcessOutcome> RunAgentProcessAsync() => ProcessRunner.RunAsync(
             new ProcessSpec
             {
                 FileName = invocation.Executable,
@@ -282,13 +300,12 @@ public sealed class TaskRunner(
             {
                 events.Append(task.Id, AgentEventKind.Log, "committed uncommitted agent changes");
             }
-            var diff = await worktrees.DiffAsync(task.WorktreePath, task.BaseSha, ct);
+            var diff = await worktrees.DiffAsync(
+                task.WorktreePath, task.BaseSha, Path.Combine(PatchRoot, $"{task.Id}.patch"), ct);
             task.HeadSha = diff.HeadSha;
             task.DiffStat = diff.DiffStat;
             task.ChangedFiles = diff.Files.ToList();
-            Directory.CreateDirectory(PatchRoot);
-            task.PatchPath = Path.GetFullPath(Path.Combine(PatchRoot, $"{task.Id}.patch"));
-            await File.WriteAllTextAsync(task.PatchPath, diff.Patch, CancellationToken.None);
+            task.PatchPath = diff.PatchPath;
             events.Append(task.Id, AgentEventKind.Log,
                 diff.Files.Count == 0 ? "no file changes" : $"{diff.Files.Count} file(s) changed", diff.DiffStat);
         }
@@ -300,9 +317,9 @@ public sealed class TaskRunner(
 
     private async Task RunTestsAsync(AgentTask task, CancellationToken ct)
     {
-        var (shell, shellArgs) = ShellFor(task.TestCommand!);
+        var (shell, shellArgs, shellLabel) = ShellFor(task.TestCommand!);
         var tail = new OutputTail(6000);
-        events.Append(task.Id, AgentEventKind.Test, $"$ {task.TestCommand}");
+        events.Append(task.Id, AgentEventKind.Test, $"$ [{shellLabel}] {task.TestCommand}");
 
         var outcome = await ProcessRunner.RunAsync(
             new ProcessSpec
@@ -339,17 +356,25 @@ public sealed class TaskRunner(
         return env;
     }
 
-    private (string, string[]) ShellFor(string command)
+    /// <summary>
+    /// Shell for test commands, with a label for the event log. On Windows prefer Git Bash, so the POSIX-style
+    /// commands agents and callers usually write (grep, test -f, &&) work; cmd.exe is the last resort.
+    /// </summary>
+    private (string Shell, string[] Args, string Label) ShellFor(string command)
     {
         if (_options.Shell is { Length: > 0 } configured)
         {
             var parts = configured.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            return (parts[0], [.. parts.Skip(1), command]);
+            return (parts[0], [.. parts.Skip(1), command], "configured");
         }
-        if (OperatingSystem.IsWindows()) return ("cmd.exe", ["/d", "/s", "/c", command]);
-        return ExecutableResolver.Find("bash") is not null ? ("bash", ["-lc", command]) : ("sh", ["-c", command]);
+        if (OperatingSystem.IsWindows())
+        {
+            return ExecutableResolver.FindGitBash() is { } gitBash
+                ? (gitBash, ["-lc", command], "git-bash")
+                : ("cmd.exe", ["/d", "/s", "/c", command], "cmd");
+        }
+        return ExecutableResolver.Find("bash") is not null ? ("bash", ["-lc", command], "bash") : ("sh", ["-c", command], "sh");
     }
-
     private async Task SetStatusAsync(AgentTask task, AgentTaskStatus status)
     {
         task.Status = status;

@@ -6,7 +6,9 @@ namespace Orchestrator.Core.Git;
 
 public sealed record WorktreeInfo(string Path, string Branch, string BaseSha, bool IncludesUncommittedChanges);
 
-public sealed record DiffInfo(string HeadSha, string DiffStat, IReadOnlyList<ChangedFile> Files, string Patch);
+public sealed record BranchDeletion(bool Deleted, bool Merged, string? CurrentBranch);
+
+public sealed record DiffInfo(string HeadSha, string DiffStat, IReadOnlyList<ChangedFile> Files, string PatchPath);
 
 /// <summary>
 /// Creates one worktree + branch per task, so each agent has exactly one private working directory.
@@ -77,12 +79,17 @@ public sealed class WorktreeManager(IOptions<OrchestratorOptions> options)
         return true;
     }
 
-    public async Task<DiffInfo> DiffAsync(string worktreePath, string baseSha, CancellationToken ct = default)
+    /// <summary>
+    /// Diff between the task's base and its head. The patch is written by git itself (byte-exact, binary-safe,
+    /// LF line endings) to <paramref name="patchPath"/>, so callers can integrate it with <c>git apply</c>.
+    /// </summary>
+    public async Task<DiffInfo> DiffAsync(string worktreePath, string baseSha, string patchPath, CancellationToken ct = default)
     {
         var head = await GitClient.RunCheckedAsync(worktreePath, ["rev-parse", "HEAD"], cancellationToken: ct);
         var stat = await GitClient.RunCheckedAsync(worktreePath, ["diff", "--stat", baseSha, head], cancellationToken: ct);
         var nameStatus = await GitClient.RunCheckedAsync(worktreePath, ["diff", "--name-status", baseSha, head], cancellationToken: ct);
-        var patch = await GitClient.RunCheckedAsync(worktreePath, ["diff", "--binary", baseSha, head], cancellationToken: ct);
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(patchPath))!);
+        await GitClient.RunCheckedAsync(worktreePath, ["diff", "--binary", $"--output={Path.GetFullPath(patchPath)}", baseSha, head], cancellationToken: ct);
 
         var files = nameStatus
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
@@ -91,7 +98,7 @@ public sealed class WorktreeManager(IOptions<OrchestratorOptions> options)
             .Select(parts => new ChangedFile(parts[0], parts[^1]))
             .ToList();
 
-        return new DiffInfo(head, stat, files, patch);
+        return new DiffInfo(head, stat, files, Path.GetFullPath(patchPath));
     }
 
     public async Task RemoveAsync(string repoRoot, string worktreePath, string? branch, bool deleteBranch, CancellationToken ct = default)
@@ -108,6 +115,37 @@ public sealed class WorktreeManager(IOptions<OrchestratorOptions> options)
         {
             await GitClient.RunAsync(repoRoot, ["branch", "-D", branch], cancellationToken: ct);
         }
+    }
+
+    /// <summary>
+    /// Deletes a task branch only if it is merged into the repository's current HEAD (or <paramref name="force"/>),
+    /// so cleaning up can never silently discard an agent's unmerged work.
+    /// </summary>
+    public async Task<BranchDeletion> DeleteBranchAsync(
+        string repoRoot, string branch, bool force, string? patchPath = null, CancellationToken ct = default)
+    {
+        using var _ = await LockAsync(repoRoot, ct);
+        var exists = await GitClient.RunAsync(repoRoot, ["rev-parse", "--verify", "--quiet", $"refs/heads/{branch}"], cancellationToken: ct);
+        if (!exists.Ok) return new BranchDeletion(Deleted: true, Merged: true, CurrentBranch: null);
+
+        var current = (await GitClient.RunAsync(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], cancellationToken: ct)).StdOut;
+        var merged = (await GitClient.RunAsync(repoRoot, ["merge-base", "--is-ancestor", branch, "HEAD"], cancellationToken: ct)).ExitCode == 0
+                     || await IsPatchAppliedAsync(repoRoot, patchPath, ct);
+        if (!merged && !force) return new BranchDeletion(Deleted: false, Merged: false, current);
+
+        await GitClient.RunCheckedAsync(repoRoot, ["branch", "-D", branch], cancellationToken: ct);
+        return new BranchDeletion(Deleted: true, merged, current);
+    }
+
+    /// <summary>
+    /// True when the task's changes are already present in the caller's working tree (integrated with
+    /// <c>git apply</c> or cherry-pick rather than merge): the patch reverse-applies cleanly.
+    /// </summary>
+    private static async Task<bool> IsPatchAppliedAsync(string repoRoot, string? patchPath, CancellationToken ct)
+    {
+        if (patchPath is null || !File.Exists(patchPath)) return false;
+        if (new FileInfo(patchPath).Length == 0) return true; // The agent changed nothing; nothing can be lost.
+        return (await GitClient.RunAsync(repoRoot, ["apply", "-R", "--check", patchPath], cancellationToken: ct)).Ok;
     }
 
     /// <summary>

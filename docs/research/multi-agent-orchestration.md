@@ -329,6 +329,10 @@ Each item is a failure mode followed by its mitigation. The ones that are easies
 27. **Dependent subtasks and merge order.** Task B needs A's output. → `base_ref` may be another task's branch (a small DAG). Merge in dependency order and re-run tests after each merge.
 28. ★ **Parent-session leakage (found while testing the prototype).** If the orchestrator is started from inside an agent session (e.g. from Claude Code's own terminal), child processes inherit variables such as `CLAUDECODE`, `CLAUDE_CODE_SESSION_ID` and the session's IPC socket/token. In testing, a child `claude -p` reported the *parent's* session id. → Strip session-identity and IPC variables from agent child processes (credentials stay). The prototype does this by default (`ScrubEnvironmentVariables`).
 29. **Watching replays.** A live view that replays history first must not treat an *old* `input_required`/`completed` event as the end (the task may have resumed since). Check the task's current state before stopping.
+30. ★ **Integrating a task that started from uncommitted work (found in testing).** The worktree's base is a snapshot commit that isn't in the caller's history. If the caller later commits the same edits itself, `git merge` of the task branch conflicts on those lines. → Integrate by applying only the agent's delta (`git apply` of base..head), and treat "patch already applied" as integrated when cleaning up.
+31. **Byte-exact patches.** Collecting `git diff` output line by line drops the final newline (and on Windows adds CRLF), which gives a "corrupt patch". → Let git write the file (`git diff --binary --output=<file>`).
+32. **Windows test commands.** `cmd.exe` has no `grep`/`test`; agents and callers write POSIX commands. → Run test commands in Git Bash when present (never `System32\bash.exe`, which is WSL). Strip ANSI colour codes from captured output.
+33. **Agent says "tests pass", independent run says no.** Seen in testing: OpenCode verified with PowerShell and reported success, while the orchestrator's own `grep` run failed. → Make the orchestrator's verdict authoritative and visible.
 
 ## 8d. Recommended tech stack
 

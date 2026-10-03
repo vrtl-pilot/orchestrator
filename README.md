@@ -23,7 +23,11 @@ Background research and design rationale: [docs/research/multi-agent-orchestrati
 - **Ask back**: if the agent needs a decision it ends with `NEEDS_INPUT: <question>`. The task becomes
   `input_required`. Your `answer_task` resumes **the same agent session** (`--resume` / `exec resume` / `--session`).
 - **Finish**: the orchestrator commits leftover changes, records the diff and patch, runs your test command, and returns
-  `completed` with `nextStep` instructions (`git merge --no-ff <branch>`, then `cleanup_task`).
+  `completed` with `nextStep` instructions: `git merge --no-ff <branch>`, or `git apply <patch>` when the task started from your
+  uncommitted work (merging that snapshot would conflict with your own copy), then `cleanup_task`. Cleanup deletes the branch only
+  once its changes are in your tree, unless you pass `force`.
+- **Tests are verified independently**: the orchestrator runs your `test_command` itself (Git Bash on Windows when installed,
+  so `grep`/`test -f` work). A failure is flagged (`needsAttention`, an amber "tests failed" chip) even if the agent claims success.
 - **Survive restarts**: all state is in SQLite + JSONL event logs. A fresh Claude session can `list_tasks`.
 
 ## Can I see what a delegated agent is doing?

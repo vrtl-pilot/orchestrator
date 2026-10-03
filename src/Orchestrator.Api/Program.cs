@@ -138,8 +138,8 @@ api.MapPost("/tasks/{id}/continue", async (string id, MessageBody body, TaskServ
 api.MapPost("/tasks/{id}/cancel", async (string id, TaskService tasks, CancellationToken ct) =>
     TaskView.From(await tasks.CancelAsync(id, ct), options.PublicUrl));
 
-api.MapDelete("/tasks/{id}/worktree", async (string id, bool? deleteBranch, TaskService tasks, CancellationToken ct) =>
-    TaskView.From(await tasks.CleanupAsync(id, deleteBranch ?? false, ct), options.PublicUrl));
+api.MapDelete("/tasks/{id}/worktree", async (string id, bool? deleteBranch, bool? force, TaskService tasks, CancellationToken ct) =>
+    TaskView.From(await tasks.CleanupAsync(id, deleteBranch ?? false, force ?? false, ct), options.PublicUrl));
 
 api.MapGet("/tasks/{id}/patch", async (string id, TaskService tasks, CancellationToken ct) =>
 {

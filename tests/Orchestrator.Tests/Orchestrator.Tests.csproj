@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Orchestrator.Core\Orchestrator.Core.csproj" />
+    <ProjectReference Include="..\..\src\Orchestrator.Api\Orchestrator.Api.csproj" />
   </ItemGroup>
 
 </Project>

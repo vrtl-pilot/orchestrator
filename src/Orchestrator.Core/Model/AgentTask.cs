@@ -84,6 +84,12 @@ public sealed class AgentTask
     public string? Branch { get; set; }
     public string? WorktreePath { get; set; }
     public string? BaseSha { get; set; }
+
+    /// <summary>
+    /// The base is a snapshot of the caller's uncommitted work. Integrate with <c>git apply</c> of the patch,
+    /// not <c>git merge</c>: the snapshot commit is not in the caller's history and would conflict.
+    /// </summary>
+    public bool BaseIncludesUncommitted { get; set; }
     public string? HeadSha { get; set; }
 
     // Agent session (used to resume after input-required or for follow-ups)
@@ -105,6 +111,9 @@ public sealed class AgentTask
     public bool? TestsPassed { get; set; }
     public int? TestExitCode { get; set; }
     public string? TestOutputTail { get; set; }
+
+    /// <summary>Informational message from the last management operation (e.g. why a branch was kept on cleanup).</summary>
+    public string? Notice { get; set; }
 
     /// <summary>Command a human can run to look at the agent's session (live where the agent supports it).</summary>
     public string? WatchCommand { get; set; }

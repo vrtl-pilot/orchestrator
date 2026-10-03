@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Channels;
 using Orchestrator.Core.Model;
+using Orchestrator.Core.Processes;
 
 namespace Orchestrator.Core.Events;
 
@@ -24,6 +25,8 @@ public sealed class TaskEventLog
 
     public AgentEvent Append(string taskId, AgentEventKind kind, string text, string? detail = null)
     {
+        text = Ansi.Strip(text);
+        detail = Ansi.StripNullable(detail);
         var stream = GetStream(taskId);
         lock (stream)
         {

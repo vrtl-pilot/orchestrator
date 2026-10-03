@@ -72,4 +72,31 @@ public sealed class ExecutableResolverTests : IDisposable
         Assert.Null(ExecutableResolver.Find("plainfile", [_dir], isWindows: false, ""));
         Assert.Equal(tool, ExecutableResolver.Find("agenttool", [_dir], isWindows: false, ""));
     }
+
+    [Fact]
+    public void Git_bash_is_found_next_to_git()
+    {
+        var gitExe = Path.Combine(_dir, "Git", "cmd", "git.exe");
+        var bash = Path.Combine(_dir, "Git", "bin", "bash.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(gitExe)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(bash)!);
+        File.WriteAllText(gitExe, "");
+        File.WriteAllText(bash, "");
+
+        Assert.Equal(bash, ExecutableResolver.FindGitBash(null, gitExe, programFiles: null));
+    }
+
+    [Fact]
+    public void Git_bash_explicit_path_wins_but_WSL_bash_is_rejected()
+    {
+        var custom = Touch("my-bash.exe");
+        Assert.Equal(custom, ExecutableResolver.FindGitBash(custom, null, null));
+
+        var system32 = Path.Combine(_dir, "System32", "bash.exe");
+        Directory.CreateDirectory(Path.GetDirectoryName(system32)!);
+        File.WriteAllText(system32, "");
+        Assert.True(File.Exists(system32));
+        Assert.Null(ExecutableResolver.FindGitBash(system32, null, null));
+        Assert.Null(ExecutableResolver.FindGitBash(null, null, null));
+    }
 }

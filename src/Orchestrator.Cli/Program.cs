@@ -38,7 +38,7 @@ internal static class Cli
           orch answer <id> <text...>       Answer the agent's pending question (resumes it)
           orch continue <id> <text...>     Send a follow-up to a finished task's agent session
           orch cancel <id>
-          orch cleanup <id> [--delete-branch]
+          orch cleanup <id> [--delete-branch] [--force]   Remove the worktree; branch deleted only if merged (or --force)
           orch agents                      Show available agents
 
         Environment: ORCHESTRATOR_URL (default http://127.0.0.1:7777), ORCHESTRATOR_API_KEY
@@ -79,7 +79,7 @@ internal static class Cli
                 "answer" => await PrintAsync(http.PostAsJsonAsync($"api/tasks/{Require(positional, 0, "task id")}/answer", new { message = Text(positional, flags) })),
                 "continue" => await PrintAsync(http.PostAsJsonAsync($"api/tasks/{Require(positional, 0, "task id")}/continue", new { message = Text(positional, flags) })),
                 "cancel" => await PrintAsync(http.PostAsync($"api/tasks/{Require(positional, 0, "task id")}/cancel", null)),
-                "cleanup" => await PrintAsync(http.DeleteAsync($"api/tasks/{Require(positional, 0, "task id")}/worktree?deleteBranch={flags.ContainsKey("delete-branch")}")),
+                "cleanup" => await PrintAsync(http.DeleteAsync($"api/tasks/{Require(positional, 0, "task id")}/worktree?deleteBranch={flags.ContainsKey("delete-branch")}&force={flags.ContainsKey("force")}")),
                 "agents" => await PrintAsync(http.GetAsync("api/agents")),
                 _ => throw new UsageException($"Unknown command '{args[0]}'. Run `orch --help`."),
             };
@@ -168,6 +168,10 @@ internal static class Cli
             if (settled || DateTimeOffset.UtcNow >= limit)
             {
                 Console.WriteLine(body.ToJsonString(Pretty));
+                if (status == "completed" && body["testsPassed"]?.GetValue<bool>() == false)
+                {
+                    Console.Error.WriteLine($"warning: task {id} completed but its test command FAILED (exit {body["testExitCode"]}). Review testOutputTail before merging.");
+                }
                 return status switch
                 {
                     "completed" => 0,
@@ -291,7 +295,7 @@ internal static class Cli
     private static string Require(List<string> positional, int index, string what) =>
         positional.Count > index ? positional[index] : throw new UsageException($"Missing {what}. Run `orch --help`.");
 
-    private static readonly HashSet<string> BooleanFlags = ["wait", "watch", "no-uncommitted", "delete-branch"];
+    private static readonly HashSet<string> BooleanFlags = ["wait", "watch", "no-uncommitted", "delete-branch", "force"];
 
     private static (List<string> Positional, Dictionary<string, string?> Flags) Parse(IEnumerable<string> args)
     {

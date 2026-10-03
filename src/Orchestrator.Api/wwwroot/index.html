@@ -89,7 +89,9 @@ async function api(path, opts = {}) {
   return body;
 }
 
-const chip = s => `<span class="chip s-${s}">${s.replace("_", " ")}</span>`;
+const chip = (s, t) => t && s === "completed" && t.testsPassed === false
+  ? `<span class="chip s-input_required">completed · tests failed</span>`
+  : `<span class="chip s-${s}">${s.replace("_", " ")}</span>`;
 const time = ts => new Date(ts).toLocaleTimeString([], { hour12: false });
 
 async function refreshList() {
@@ -97,7 +99,7 @@ async function refreshList() {
     const tasks = await api("/api/tasks?limit=100");
     $("#list").innerHTML = tasks.length ? tasks.map(t => `
       <div class="task ${t.id === selected ? "active" : ""}" data-id="${t.id}">
-        <div class="row"><span class="id">${t.id} · ${t.agent}</span>${chip(t.status)}</div>
+        <div class="row"><span class="id">${t.id} · ${t.agent}</span>${chip(t.status, t)}</div>
         <div class="prompt">${esc(t.pendingQuestion || t.summary || t.error || t.branch || "")}</div>
       </div>`).join("") : `<p style="padding:14px;color:var(--muted)">No tasks yet.</p>`;
     $("#list").querySelectorAll(".task").forEach(el => el.onclick = () => select(el.dataset.id));
@@ -122,7 +124,7 @@ function renderTask(t, force) {
   card.dataset.updated = t.updatedAt; card.dataset.status = t.status;
   card.innerHTML = `
     <div class="card">
-      <h2>${esc(t.id)} ${chip(t.status)} <span style="color:var(--muted);font-weight:400">${esc(t.agent)} · turn ${t.turns}</span></h2>
+      <h2>${esc(t.id)} ${chip(t.status, t)} <span style="color:var(--muted);font-weight:400">${esc(t.agent)} · turn ${t.turns}</span></h2>
       <div class="kv">
         <div>Branch</div><div><code>${esc(t.branch || "—")}</code></div>
         <div>Worktree</div><div><code>${esc(t.worktreePath || "—")}</code></div>
@@ -141,6 +143,8 @@ function renderTask(t, force) {
       <textarea id="answer" rows="3" placeholder="Your answer…"></textarea>
       <div class="actions"><button class="primary" id="sendAnswer">Send answer</button></div>
     </div>` : ""}
+    ${t.notice ? `<div class="card"><h2>Notice</h2><pre>${esc(t.notice)}</pre></div>` : ""}
+    ${t.status === "completed" && t.testsPassed === false ? `<div class="card question"><h2>Tests failed — review before merging</h2><pre>${esc(t.nextStep)}</pre></div>` : ""}
     ${t.error ? `<div class="card"><h2>Error</h2><pre>${esc(t.error)}</pre></div>` : ""}
     ${t.summary ? `<div class="card"><h2>Agent summary</h2><pre>${esc(t.summary)}</pre></div>` : ""}
     ${t.diffStat ? `<div class="card"><h2>Diff</h2><pre>${esc(t.diffStat)}</pre></div>` : ""}

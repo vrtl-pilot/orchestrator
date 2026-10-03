@@ -78,32 +78,7 @@ public sealed class OpenCodeAdapter : IAgentAdapter
                     break;
 
                 case "tool_use" when part is { } p:
-                    var tool = p.Str("tool") ?? "tool";
-                    var state = p.Obj("state");
-                    var input = state?.Obj("input");
-                    var status = state?.Str("status");
-                    var title = state?.Str("title");
-                    var kind = tool switch
-                    {
-                        "bash" => AgentEventKind.Command,
-                        "edit" or "write" or "patch" or "multiedit" => AgentEventKind.FileChange,
-                        _ => AgentEventKind.ToolCall,
-                    };
-                    var text2 = kind switch
-                    {
-                        AgentEventKind.Command => input?.Str("command") ?? title ?? tool,
-                        AgentEventKind.FileChange => $"{tool} {input?.Str("filePath") ?? title}",
-                        _ => title is { Length: > 0 } ? $"{tool}: {title}" : tool,
-                    };
-                    if (status == "error")
-                    {
-                        yield return new ParsedEvent(AgentEventKind.Error, $"{tool} failed", state?.Str("error"));
-                    }
-                    else
-                    {
-                        yield return new ParsedEvent(kind, text2,
-                            JsonLine.Truncate(state?.Str("output") ?? JsonLine.Compact(input), 2000));
-                    }
+                    yield return ToolUse(p);
                     break;
 
                 case "error":
@@ -113,5 +88,44 @@ public sealed class OpenCodeAdapter : IAgentAdapter
                     break;
             }
         }
+        /// <summary>
+        /// Maps a tool part to an event. Tool ids and input keys differ between versions and platforms
+        /// (e.g. the shell tool is <c>bash</c> on Unix and <c>shell</c> on Windows), so look for them tolerantly.
+        /// </summary>
+        private static ParsedEvent ToolUse(System.Text.Json.JsonElement p)
+        {
+            var tool = p.Str("tool") ?? "tool";
+            var state = p.Obj("state");
+            var input = state?.Obj("input");
+            var title = state?.Str("title");
+            var output = state?.Str("output");
+
+            if (state?.Str("status") == "error")
+            {
+                return new ParsedEvent(AgentEventKind.Error, $"{tool} failed", state?.Str("error"));
+            }
+
+            var detail = JsonLine.Truncate(output ?? JsonLine.Compact(input), 2000);
+            switch (tool.ToLowerInvariant())
+            {
+                case "bash" or "shell" or "powershell" or "pwsh":
+                    return new ParsedEvent(AgentEventKind.Command, input?.Str("command") ?? NonTrivial(title, tool) ?? tool, detail);
+
+                case "edit" or "write" or "patch" or "multiedit" or "apply_patch":
+                    var path = input?.Str("filePath") ?? input?.Str("file_path") ?? input?.Str("path")
+                               ?? NonTrivial(title, tool) ?? FirstLine(output);
+                    return new ParsedEvent(AgentEventKind.FileChange, path is null ? tool : $"{tool} {path}", detail);
+
+                default:
+                    return new ParsedEvent(AgentEventKind.ToolCall, NonTrivial(title, tool) is { } t ? $"{tool}: {t}" : tool, detail);
+            }
+        }
+
+        /// <summary>The title, unless it merely repeats the tool name.</summary>
+        private static string? NonTrivial(string? title, string tool) =>
+            string.IsNullOrWhiteSpace(title) || title.Equals(tool, StringComparison.OrdinalIgnoreCase) ? null : title;
+
+        private static string? FirstLine(string? text) =>
+            string.IsNullOrWhiteSpace(text) ? null : JsonLine.Truncate(text.Trim().Split('\n')[0].Trim(), 160);
     }
 }

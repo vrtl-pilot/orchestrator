@@ -21,7 +21,8 @@ Call `delegate_task` with:
 - `repo_path`: your current working directory (absolute).
 - `prompt`: a **self-contained brief**: goal, constraints, the files involved, acceptance criteria, and
   anything you already learned. The agent cannot see this conversation.
-- `test_command` when there is one (e.g. `dotnet test`, `npm test`). The orchestrator runs it afterwards.
+- `test_command` when there is one (e.g. `dotnet test`, `npm test`). The orchestrator runs it afterwards, in Git Bash on
+  Windows when available (otherwise cmd.exe), so keep it portable.
 
 Your uncommitted changes are included in the task's starting point by default. Avoid editing the same
 files while the task runs; you will merge its branch later.
@@ -41,13 +42,18 @@ Send it with `answer_task(task_id, answer)` and go back to step 3. The agent res
 
 ## 5. Review and integrate (`completed`)
 
-1. Read `summary`, `diffStat`, `changedFiles`, `testsPassed` / `testOutputTail`.
+1. Read `summary`, `diffStat`, `changedFiles`, `testsPassed` / `testOutputTail`. If `needsAttention` is true or
+   `testsPassed` is false, do not merge: the orchestrator's own test run outranks the agent's claim that tests pass.
 2. Inspect the diff: `git diff <baseSha> <branch>` (or read the `patchPath` file).
 3. If it needs changes, use `continue_task(task_id, message)` and wait again.
-4. If good, merge it into your working tree: `git merge --no-ff <branch>`. Resolve conflicts if any.
-   If your tree has uncommitted changes that the task's base already included, commit them first so
-   the merge applies cleanly.
-5. Call `cleanup_task(task_id, delete_branch=true)`.
+4. If good, integrate it, following `nextStep`:
+   - `baseIncludesUncommitted: true` (the task started from your uncommitted edits): do **not** `git merge`.
+     That snapshot commit isn't in your history, so a merge conflicts with your own copy of those edits. Apply only
+     the agent's changes: `git apply "<patchPath>"`. If that fails because you changed the files since, commit your
+     work and use `git apply --3way "<patchPath>"`.
+   - Otherwise: `git merge --no-ff <branch>` (or the same `git apply`).
+5. Call `cleanup_task(task_id, delete_branch=true)` **after** merging. It refuses to delete an unmerged branch
+   (see `notice`). Use `force=true` only when the user agrees to discard the work.
 
 ## 6. Failures
 

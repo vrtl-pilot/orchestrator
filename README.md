@@ -15,7 +15,8 @@ Background research and design rationale: [docs/research/multi-agent-orchestrati
 
 ## What it does
 
-- **Delegate**: `delegate_task(agent, prompt, repo_path, test_command?)` returns immediately with a task id.
+- **Delegate**: `delegate_task(agent, prompt, repo_path, test_command?)` returns immediately with a task id. The calling agent
+  asks you which platform to use (see *Using it*).
 - **Isolate**: each task gets `orchestrator/<task-id>` in `<repo>/.orchestrator/worktrees/<task-id>`, branched
   from your HEAD **plus your uncommitted changes** (snapshotted without touching your index or files).
 - **Run**: the agent's CLI runs headless: `claude -p --output-format stream-json`, `codex exec --json`,
@@ -50,7 +51,7 @@ Yes. A headless child process has no window of its own, so the orchestrator make
 
 | Way | What you see | Works for |
 |---|---|---|
-| **Dashboard**, `http://127.0.0.1:7777` | Live feed of every task: agent messages, shell commands, file edits, errors, test output, plus the agent's question with an answer box, diff stat and patch download | All agents |
+| **Dashboard**, http://127.0.0.1:7777/ | Live feed of every task: agent messages, shell commands, file edits, errors, test output, plus the agent's question with an answer box, diff stat and patch download | All agents |
 | **`orch watch <task-id>`** | The same live feed, colour-coded in your terminal | All agents |
 | **Real TUI, attached live** | Set `Orchestrator:Agents:opencode:AttachUrl` to a running `opencode serve` (e.g. `http://127.0.0.1:4096`). Tasks then run *inside* that server, and `opencode attach http://127.0.0.1:4096 --session <id>` (shown as `watchCommand`) opens OpenCode's own UI on the live session | OpenCode |
 | **Open the session afterwards** | `watchCommand`, e.g. `claude --resume <id>`, `codex resume <id>` or `qodercli --resume <id>` in the task's worktree, opens the full conversation in the agent's own UI | Claude Code, Codex, Qoder |
@@ -59,76 +60,92 @@ You can also open the task's worktree folder in your editor while it runs: the f
 Claude Code and Codex have no supported way to attach a UI to a running headless run, so for those the
 dashboard and `orch watch` are the live view.
 
-## Quick start (Linux / macOS / WSL / Windows)
+## Install
 
-Prerequisites: .NET 10 SDK, git, and the agent CLIs you want to use (installed and logged in as usual):
-`npm i -g @anthropic-ai/claude-code @openai/codex opencode-ai`, then `claude` → `/login`, `codex login`,
-`opencode auth login`.
+Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), git, and at least one agent CLI, installed and
+logged in as usual:
 
-Qoder: use Qoder's own installer (Windows PowerShell `irm https://qoder.com/install.ps1 | iex`, CMD
-`curl -fsSL https://qoder.com/install.cmd -o install.cmd && install.cmd`) or `npm i -g @qoder-ai/qodercli`, then `qodercli` → `/login`.
-In the orchestrator the agent is called **`qoder`** (`delegate_task(agent: "qoder")`, `orch delegate qoder …`, config section
-`Agents:qoder`); the program it runs is **`qodercli`** (`qodercli.exe` from the installer). Restart the orchestrator after
-installing any CLI so it sees the updated PATH; `orch agents` shows the path it found.
+| Platform | Install | Log in |
+|---|---|---|
+| Claude Code | `npm i -g @anthropic-ai/claude-code` | `claude`, then `/login` |
+| Codex | `npm i -g @openai/codex` | `codex login` |
+| OpenCode | `npm i -g opencode-ai` | `opencode auth login` |
+| Qoder | Qoder's installer (PowerShell `irm https://qoder.com/install.ps1 \| iex`) or `npm i -g @qoder-ai/qodercli` | `qodercli`, then `/login` |
 
+Then, from a clone of this repository:
+
+```powershell
+.\install.ps1          # Windows (if scripts are blocked: powershell -ExecutionPolicy Bypass -File .\install.ps1)
+```
 ```bash
-dotnet run --project src/Orchestrator.Api          # http://127.0.0.1:7777 (dashboard), /mcp (MCP)
-dotnet run --project src/Orchestrator.Cli -- agents # shows which agent CLIs were found
+./install.sh           # Linux / macOS
 ```
 
-**Windows:** npm installs each CLI as `opencode.cmd` (plus an extensionless bash shim that Windows can't run). The orchestrator
-picks the `.cmd`/`.exe` automatically and runs it via `cmd.exe /c`. If a CLI lives somewhere else, set
-`Orchestrator:Agents:<name>:Executable` to its `.cmd`/`.exe`. `orch agents` shows the `resolvedPath` actually used. Restart the
-orchestrator after installing a CLI so it sees the updated PATH. Delegating to an agent whose CLI can't be found is rejected
-immediately with install instructions; no worktree is created.
+The installer:
+1. builds a self-contained app into `%LOCALAPPDATA%\agent-orchestrator\app` (Linux `~/.local/share/agent-orchestrator/app`,
+   macOS `~/Library/Application Support/agent-orchestrator/app`),
+2. puts `orch` on your PATH (Windows: user PATH, so open a new terminal; Linux/macOS: `~/.local/bin/orch`),
+3. runs **`orch setup`**, which lists the agent CLIs it found and asks, one by one, which to connect:
 
-Install the CLI as a tool (optional): `dotnet pack src/Orchestrator.Cli -o nupkg && dotnet tool install -g Orchestrator.Cli --add-source nupkg`.
+```text
+Agent CLIs on this computer:
+  ✔ Claude Code    C:\Users\you\AppData\Roaming\npm\claude.cmd
+  ✘ Codex          not installed — npm i -g @openai/codex, then `codex login`
+  ✔ OpenCode       C:\Users\you\AppData\Roaming\npm\opencode.cmd
+  ✔ Qoder          C:\Users\you\.qoder\bin\qodercli\qodercli.exe
 
-### Connect Claude Code (once, for all projects)
-
-```bash
-claude mcp add --scope user --transport http orchestrator http://127.0.0.1:7777/mcp
-mkdir -p ~/.claude/skills && cp -r examples/claude-code/skills/delegate ~/.claude/skills/
+Connect Claude Code? [Y/n]
+Connect OpenCode? [Y/n]
+Connect Qoder? [Y/n]
+Start the orchestrator automatically when you log in? [Y/n]
 ```
 
-`--scope user` makes the orchestrator available in **every** project. Without it, Claude Code uses *local* scope and only
-sees the orchestrator in the folder where you ran the command. If you added it that way earlier:
-`claude mcp remove orchestrator`, then run the command above. Check with `/mcp` in any repo.
+**Connecting** an agent registers the orchestrator's MCP server with that agent (user-wide, so it works in every project) and installs
+the `agent-orchestrator` skill into the agent's skills folder. After that you can delegate from inside that agent.
+**Autostart** uses Task Scheduler on Windows, a systemd user service on Linux and a LaunchAgent on macOS.
 
-Then, in any repo: *"Delegate adding input validation to the signup endpoint to Codex, with `dotnet test` as the check,
-and continue with the docs while it runs."* Claude calls `delegate_task`, keeps working, polls `wait_task`, relays any
-question to you, and merges the branch when it is done.
+- **Upgrade:** `git pull`, then run the installer again. Settings and task history are kept.
+- **Add an agent you installed later:** `orch setup` again, or **Connect** on the Setup page.
+- **Uninstall:** `.\install.ps1 -Uninstall` / `./install.sh --uninstall` disconnects every agent, removes autostart and the app.
+  Task history and settings stay in the data folder unless you add `-Purge` / `--purge`.
+- **Non-interactive:** `orch setup --agents claude,qoder --yes [--no-autostart]`
+  (installer: `.\install.ps1 -SetupArgs '--agents','claude,qoder','--yes'`, `./install.sh --agents claude,qoder --yes`).
 
-### Connect Codex, OpenCode or Qoder (so they can delegate too)
+## Web pages (UI)
 
-```bash
-codex mcp add orchestrator --url http://127.0.0.1:7777/mcp
-qodercli mcp add --scope user --transport http orchestrator http://127.0.0.1:7777/mcp
+With the server running (it starts at login, or run `orch start`):
+
+| Page | Address | What it's for |
+|---|---|---|
+| **Dashboard** | **http://127.0.0.1:7777/** | All tasks, live activity of each, answer an agent's question, follow up, download the patch, start a task by hand |
+| **Setup** | **http://127.0.0.1:7777/#setup** | Platforms: installed?, connected?, **Connect / Disconnect / Check**, default model, permission policy, enable/disable. **Add a platform.** Server addresses, data folder, settings file, **Start at login** switch |
+| One task | http://127.0.0.1:7777/#task=&lt;task-id&gt; | Direct link to a task (every task result includes it as `dashboardUrl`) |
+| MCP endpoint | http://127.0.0.1:7777/mcp | For agents, not a web page. Setup registers this address |
+
+`orch open` opens the dashboard, `orch open setup` the Setup page and `orch open <task-id>` a task. `orch status` prints these
+addresses. If you change the port (`"Urls": "http://127.0.0.1:8080"` in your settings file), every printed link, the
+MCP registration and the skill follow the configured address. Re-run `orch setup` afterwards so the agents learn the new URL.
+
+```text
+orch setup | start | stop | status | open [setup|<task-id>] | uninstall
 ```
 
-**OpenCode**: add the server to OpenCode's global config, `~/.config/opencode/opencode.json`
-(Windows: `%USERPROFILE%\.config\opencode\opencode.json`; create the folder/file if missing). If the file already has content,
-merge the `mcp` block into it rather than replacing the file:
+## Using it
 
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "orchestrator": { "type": "remote", "url": "http://127.0.0.1:7777/mcp", "enabled": true }
-  }
-}
-```
+In any Git repository, ask a connected agent to hand work over, e.g. in Claude Code:
+*"Delegate adding input validation to the signup endpoint to another agent, with `dotnet test` as the check, and continue with
+the docs while it runs."*
 
-Or run `opencode mcp add` and answer the prompts (remote, URL `http://127.0.0.1:7777/mcp`). Check with `opencode mcp list`:
-`orchestrator` should show as connected while the orchestrator runs. If you set `Orchestrator:ApiKey`, add
-`"headers": { "X-Orchestrator-Key": "<key>" }` to the entry. A project's own `opencode.json` can hold the same block.
+1. **It asks you which platform.** Unless you named one ("…to Codex"), the agent calls `list_agents` and asks you to choose
+   among the platforms that are installed and enabled, showing each one's default model. It never picks silently: a
+   `delegate_task` call without `agent` starts nothing and returns `agent_selection_required` with the available choices
+   (and install hints for missing ones).
+2. It calls `delegate_task`, keeps working, and polls `wait_task`. Watch the task live on the dashboard.
+3. If the delegated agent asks something, your agent answers it or relays the question to you.
+4. When the task is done it reviews the diff and test result and merges the branch.
 
-`codex mcp add` writes to `~/.codex/config.toml`, which is global. The Qoder command above uses `--scope user` for the same reason.
-
-The delegate skill works in Qoder too (Qoder loads user skills from `~/.qoder/skills/<name>/SKILL.md`):
-`Copy-Item -Recurse examples\claude-code\skills\delegate $HOME\.qoder\skills\delegate` (macOS/Linux:
-`cp -r examples/claude-code/skills/delegate ~/.qoder/skills/`). Then, in `qodercli`, ask it to delegate, e.g.
-*"Use the orchestrator tools to delegate to opencode: …"*.
+It works the same from Codex, OpenCode, Qoder or any connected platform, e.g. in `qodercli`: *"Use the orchestrator to delegate
+to opencode: …"*.
 
 ### Which projects can it work on?
 
@@ -138,10 +155,11 @@ projects never mix. A repository needs at least one commit (for a new folder: `g
 
 - Restrict it to certain folders with `Orchestrator:AllowedRepositoryRoots` (e.g. `["C:/src", "D:/work"]`).
 - `Orchestrator:DefaultRepository` is used when a caller doesn't pass a path.
-- Task history lives in one per-user folder (`%LOCALAPPDATA%\agent-orchestrator` on Windows, `~/.local/share/agent-orchestrator`
-  on Linux), so it doesn't matter where you start the server from. Override with `Orchestrator:DataDirectory`.
+- Task history lives in one per-user data folder (shown on the Setup page), so it doesn't matter where the server runs from.
 
-Any agent (or you) can also use the CLI from a shell:
+### From a shell
+
+Any agent (or you) can also use `orch`:
 
 ```bash
 orch delegate codex "Add input validation to POST /signup; reject empty email" --test "dotnet test" --wait
@@ -153,18 +171,67 @@ orch cleanup <task-id> --delete-branch
 
 `orch wait` / `delegate --wait` exit codes: `0` completed, `2` input required, `1` failed/cancelled, `3` still running.
 
+## Adding a platform
+
+**New project:** nothing to do. Any Git repository works.
+
+**New agent CLI** (e.g. Gemini CLI, Cursor Agent, GitHub Copilot CLI): open **Setup → Add a platform**
+(http://127.0.0.1:7777/#setup), or add it to your settings file. No code is needed:
+
+```jsonc
+"Orchestrator": { "Agents": { "gemini": {
+  "DisplayName": "Gemini CLI",
+  "Executable": "gemini",
+  "Protocol": "claude-stream-json",          // claude-stream-json | codex-jsonl | opencode-json | text
+  "Args": ["-p", "--output-format", "stream-json"],
+  "ModelArgs": ["--model", "{model}"],
+  "ResumeArgs": ["--resume", "{sessionId}"], // omit if the CLI can't resume: answers then restate the task as a new turn
+  "PromptVia": "stdin",                      // or "arg" (appended, or wherever "{prompt}" appears in Args)
+  "ExtraArgs": ["--yolo"],                   // permission policy
+  "Integration": {                           // what Connect does, so this agent can delegate too (optional)
+    "McpAdd": ["gemini", "mcp", "add", "orchestrator", "{url}"],
+    "McpRemove": ["gemini", "mcp", "remove", "orchestrator"],
+    "SkillsDirs": ["~/.gemini/skills"]
+  } } } }
+```
+
+- **Protocols:** `claude-stream-json` gives the full live feed and model/session detection for CLIs that print Claude Code-style
+  `stream-json`; `codex-jsonl` and `opencode-json` likewise. **`text` works with any CLI**: each output line appears in the live
+  feed and the whole output is the final message (no session resume).
+- The flags above are only an example: check them against the CLI's `--help`, then use **Check** on the Setup page (runs
+  `--version`, or your `VersionArgs`; no model call).
+- A CLI with a brand-new output format needs a small parser in code; see *Development*.
+
+## Settings
+
+Your settings live in `config.json` in the data folder (`%LOCALAPPDATA%\agent-orchestrator\config.json`; Linux
+`~/.local/share/agent-orchestrator/config.json`; macOS `~/Library/Application Support/agent-orchestrator/config.json`). The
+Setup page writes it for you and changes apply without a restart. It uses the same shape as
+`src/Orchestrator.Api/appsettings.json`, which holds the defaults and is replaced on upgrade. Environment variables
+(`Orchestrator__MaxConcurrentTasks=4`) override both.
+
+The server log is `logs/server.log` in the data folder (`Orchestrator:LogFile` changes it; `"off"` disables it).
+
+### Windows notes
+
+npm installs each CLI as `opencode.cmd` (plus an extensionless bash shim that Windows can't run). The orchestrator picks the
+`.cmd`/`.exe` automatically and runs it via `cmd.exe /c`. If a CLI lives somewhere else, set its **Program** on the Setup page
+(`Orchestrator:Agents:<name>:Executable`). In the orchestrator, Qoder is called **`qoder`**; the program it runs is
+**`qodercli`** (`qodercli.exe` from the installer). CLIs installed after the server started are found too. Delegating to
+an agent whose CLI can't be found is rejected immediately with install instructions.
+
 ## MCP tools
 
 | Tool | Purpose |
 |---|---|
-| `delegate_task` | Start a task (agent, prompt, repo_path, base_ref, include_uncommitted, model, test_command, timeout_minutes, parent_task_id, client_request_id) |
+| `delegate_task` | Start a task (prompt, agent (without it: returns the choices to ask the user, starts nothing), repo_path, base_ref, include_uncommitted, model, test_command, timeout_minutes, parent_task_id, client_request_id) |
 | `wait_task` | Long-poll ≤ 90 s; returns early on completed / failed / cancelled / **input_required** |
 | `answer_task` | Answer the agent's question; resumes the same session |
 | `continue_task` | Follow-up instruction to a finished task (same session, same worktree) |
 | `get_task`, `list_tasks` | State; recover task ids after a restart or compaction |
 | `get_task_events` | Live progress (incremental with `after_seq`) |
 | `cancel_task`, `cleanup_task` | Kill the process tree / remove the worktree (and branch) |
-| `list_agents` | Which agent CLIs are installed |
+| `list_agents` | Available platforms with default models, and missing ones with install hints |
 
 Every result carries `nextStep`, so the calling model always knows what to do next.
 
@@ -174,11 +241,21 @@ Every result carries `nextStep`, so the calling model always knows what to do ne
 `POST /api/tasks/{id}/answer|continue|cancel` (`{"message": "..."}`), `DELETE /api/tasks/{id}/worktree?deleteBranch=`,
 `GET /api/tasks/{id}/patch`, `GET /api/tasks/{id}/events` (Server-Sent Events; `?follow=false` for JSON), `GET /api/agents`, `GET /health`.
 
-## Configuration (`src/Orchestrator.Api/appsettings.json`, or env vars like `Orchestrator__MaxConcurrentTasks=4`)
+Setup (used by the Setup page and `orch setup`): `GET /api/setup/info`, `GET /api/setup/platforms[/{name}]`,
+`POST /api/setup/platforms/{name}/connect|disconnect|check`, `PUT /api/setup/platforms/{name}` (`enabled`, `model`, `executable`,
+`extraArgs`), `POST /api/setup/platforms` (add a custom platform), `DELETE /api/setup/platforms/{name}`,
+`POST /api/setup/autostart` (`{"enabled": true}`), `POST /api/admin/shutdown`.
+
+Requests that change something (`POST`/`PUT`/`DELETE` under `/api`) must send an `X-Orchestrator-Client: <any name>` header. The
+dashboard and `orch` do this. It stops web pages on other sites from driving the server through your browser.
+
+## Configuration reference (settings file, see *Settings*)
 
 | Setting | Default | Notes |
 |---|---|---|
-| `Urls` | `http://127.0.0.1:7777` | Keep it on localhost unless you set `ApiKey` |
+| `Urls` | `http://127.0.0.1:7777` | Top-level key. Keep it on localhost unless you set `ApiKey` |
+| `Orchestrator:TrustedHosts` | `[]` | Host names accepted besides localhost/127.0.0.1 (e.g. a Docker service name); others get 400 |
+| `Orchestrator:DataDirectory`, `LogFile` | per-user folder | Task database, event logs, patches; server log |
 | `Orchestrator:ApiKey` | none | Required as `X-Orchestrator-Key`, `Authorization: Bearer`, or `?key=` |
 | `Orchestrator:AllowedRepositoryRoots` | any | Restrict which repos can be targeted |
 | `Orchestrator:DefaultRepository` | none | Used when `repo_path` is omitted |
@@ -187,8 +264,9 @@ Every result carries `nextStep`, so the calling model always knows what to do ne
 | `Orchestrator:MaxDepth` | 2 | Stops delegation loops (A → B → A …) |
 | `Orchestrator:CopyIntoWorktree` | `[]` | Gitignored files a worktree needs, e.g. `.env.local` |
 | `Orchestrator:ScrubEnvironmentVariables` | session/IPC vars | Stops children from inheriting the parent agent's session identity (see below) |
-| `Agents:<name>:ExtraArgs` | see file | **Permission policy per agent** (`--permission-mode acceptEdits`, `--sandbox workspace-write`, `--auto` + `OPENCODE_PERMISSION` deny rules, Qoder `--permission-mode accept_edits`) |
-| `Agents:<name>:Model`, `Executable`, `Environment` | | Model default, binary path, extra env (e.g. API keys) |
+| `Agents:<name>:ExtraArgs` | built in | **Permission policy per agent** (`--permission-mode acceptEdits`, `--sandbox workspace-write`, `--auto` + `OPENCODE_PERMISSION` deny rules, Qoder `--permission-mode accept_edits`) |
+| `Agents:<name>:Model`, `Executable`, `Environment`, `Enabled` | | Model default, binary path, extra env (e.g. API keys), hide from delegation |
+| `Agents:<name>:Protocol`, `Args`, … | | Custom platforms (see *Adding a platform*) |
 | `Agents:opencode:AttachUrl` | none | Run OpenCode tasks inside a shared `opencode serve` so you can attach live |
 
 ## Authentication
@@ -226,19 +304,47 @@ write sessions and refresh tokens there). Pin CLI versions with the `*_VERSION` 
 - **Parent-session isolation**: if the orchestrator is started from inside an agent session (e.g. from Claude Code's
   terminal), variables such as `CLAUDE_CODE_SESSION_ID` would make children reuse the parent's session and IPC channel.
   They are stripped by default (`ScrubEnvironmentVariables`).
+- **The server only accepts local callers**: it rejects unknown `Host` headers and foreign `Origin`s, and state-changing calls need
+  the `X-Orchestrator-Client` header, so a website you visit can't use it. Set `ApiKey` if other users share the machine.
+- **Setup edits agent configs**: Connect runs each agent's own `mcp add` command, or (OpenCode) rewrites `opencode.json`
+  after saving `opencode.json.bak` (comments in that file are not preserved). Disconnect removes only what Connect added, and
+  never deletes a skill file you edited.
 - Treat a delegated agent's output as untrusted data: review the diff before merging; nothing is merged or pushed automatically.
 
 ## Development
 
 ```bash
-dotnet build && dotnet test      # unit + end-to-end tests (git worktrees, a scripted fake agent, input-required flow)
+dotnet build && dotnet test                         # unit, API and end-to-end tests
+dotnet run --project src/Orchestrator.Api           # dev server on http://127.0.0.1:7777 (stop the installed one first: orch stop)
+dotnet run --project src/Orchestrator.Cli -- status
 ```
+
+A development server uses the same data folder and settings file as the installed app. Autostart can only be enabled for
+the installed app.
+
+### Manual setup (without the installer)
+
+What Connect does for each built-in platform, if you'd rather do it by hand (use your own address if you changed the port):
+
+| Platform | Register the MCP server (user-wide) | Skill folder (copy `skills/agent-orchestrator` into it) |
+|---|---|---|
+| Claude Code | `claude mcp add --scope user --transport http orchestrator http://127.0.0.1:7777/mcp` | `~/.claude/skills/` |
+| Codex | `codex mcp add orchestrator --url http://127.0.0.1:7777/mcp` | `~/.codex/skills/` |
+| Qoder | `qodercli mcp add --scope user --transport http orchestrator http://127.0.0.1:7777/mcp` | `~/.qoder/skills/` |
+| OpenCode | add `"mcp": { "orchestrator": { "type": "remote", "url": "http://127.0.0.1:7777/mcp", "enabled": true } }` to `~/.config/opencode/opencode.json` | `~/.config/opencode/skills/` |
+
+`--scope user` matters for Claude Code and Qoder: without it the server is only visible in the folder where you ran the command.
+With `Orchestrator:ApiKey` set, add the key as an `X-Orchestrator-Key` header (Codex: `--bearer-token-env-var ORCHESTRATOR_API_KEY`).
 
 Layout: `src/Orchestrator.Core` (adapters, parsers, worktrees, runner, store, event log), `src/Orchestrator.Api`
 (HTTP + SSE + MCP + dashboard), `src/Orchestrator.Cli` (`orch`), `tests/Orchestrator.Tests`.
 
-Adding an agent: implement `IAgentAdapter` (build the command line, parse its JSON output into `ParsedEvent`s, extract the
-session id and final message), register it in `Program.cs`, and add an `Agents:<name>` section.
+Adding an agent with a new output format: implement `IAgentAdapter` (build the command line, parse its output into
+`ParsedEvent`s, extract the session id and final message), register it in `Program.cs`, and add its connect commands to
+`Setup/PlatformIntegrations.cs`. For CLIs that reuse an existing format, a config entry is enough (*Adding a platform*).
+
+Layout additions: `src/Orchestrator.Core/Setup` (connect/disconnect, skill install, OpenCode config edits, autostart),
+`src/Orchestrator.Api/SetupEndpoints.cs`, `skills/agent-orchestrator/SKILL.md` (embedded into the app), `install.ps1` / `install.sh`.
 
 ## Known limitations (v1)
 

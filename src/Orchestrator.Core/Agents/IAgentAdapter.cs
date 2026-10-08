@@ -59,6 +59,15 @@ public interface IAgentAdapter
 
     string DefaultExecutable { get; }
 
+    /// <summary>Name shown in the UI.</summary>
+    string DisplayName => Name;
+
+    /// <summary>Permission policy etc. used when the configuration doesn't set <see cref="AgentOptions.ExtraArgs"/>.</summary>
+    IReadOnlyList<string> DefaultExtraArgs => [];
+
+    /// <summary>Environment variables applied unless the configuration sets the same key.</summary>
+    IReadOnlyDictionary<string, string> DefaultEnvironment => new Dictionary<string, string>();
+
     AgentInvocation BuildInvocation(AgentTurnContext context);
 
     IAgentOutputParser CreateParser();

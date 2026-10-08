@@ -14,4 +14,9 @@
     <InternalsVisibleTo Include="Orchestrator.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The skill installed into each connected agent; single source of truth at the repo root. -->
+    <EmbeddedResource Include="..\..\skills\agent-orchestrator\SKILL.md" LogicalName="Orchestrator.Core.Skill.SKILL.md" />
+  </ItemGroup>
+
 </Project>

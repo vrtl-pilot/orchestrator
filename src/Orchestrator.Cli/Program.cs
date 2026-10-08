@@ -12,12 +12,20 @@ using System.Text.Json.Nodes;
 var exitCode = await Cli.RunAsync(args);
 return exitCode;
 
-internal static class Cli
+internal static partial class Cli
 {
     private const string Usage = """
-        orch — delegate coding tasks to Claude Code, Codex, OpenCode or Qoder via the Agent Orchestrator
+        orch — delegate coding tasks to Claude Code, Codex, OpenCode, Qoder or your own agent CLIs
 
-        Usage:
+        Setup and server:
+          orch setup [--agents a,b] [--yes] [--autostart | --no-autostart]
+                                           Detect installed agents and connect the ones you choose
+                                           (registers the MCP server + installs the agent-orchestrator skill)
+          orch start | stop | status       Run / stop / inspect the background server
+          orch open [setup | <task-id>]    Open the dashboard (default), the Setup page, or one task
+          orch uninstall                   Disconnect all agents, remove autostart, stop the server
+
+        Tasks:
           orch delegate <agent> [prompt...] [options]   Start a task (prompt from args, --prompt-file, or stdin)
               --repo PATH         Repository (default: current directory)
               --base REF          Branch from REF instead of HEAD + uncommitted changes
@@ -41,7 +49,8 @@ internal static class Cli
           orch cleanup <id> [--delete-branch] [--force]   Remove the worktree; branch deleted only if merged (or --force)
           orch agents                      Show available agents
 
-        Environment: ORCHESTRATOR_URL (default http://127.0.0.1:7777), ORCHESTRATOR_API_KEY
+        Pages: dashboard http://127.0.0.1:7777/  ·  setup http://127.0.0.1:7777/#setup  ·  task http://127.0.0.1:7777/#task=<id>
+        Environment: ORCHESTRATOR_URL (default: the running server, else http://127.0.0.1:7777), ORCHESTRATOR_API_KEY
         Exit codes (wait): 0 completed, 2 input required, 1 failed/cancelled, 3 still running
         """;
 
@@ -60,8 +69,10 @@ internal static class Cli
         }
 
         var (positional, flags) = Parse(args.Skip(1));
-        var baseUrl = (flags.GetValueOrDefault("url") ?? Environment.GetEnvironmentVariable("ORCHESTRATOR_URL") ?? "http://127.0.0.1:7777").TrimEnd('/');
+        var baseUrl = ServerUrl(flags);
         using var http = new HttpClient { BaseAddress = new Uri(baseUrl + "/"), Timeout = Timeout.InfiniteTimeSpan };
+        // Required by the server for state-changing calls (blocks cross-site requests from web pages).
+        http.DefaultRequestHeaders.Add("X-Orchestrator-Client", "orch");
         if (Environment.GetEnvironmentVariable("ORCHESTRATOR_API_KEY") is { Length: > 0 } key)
         {
             http.DefaultRequestHeaders.Add("X-Orchestrator-Key", key);
@@ -81,6 +92,12 @@ internal static class Cli
                 "cancel" => await PrintAsync(http.PostAsync($"api/tasks/{Require(positional, 0, "task id")}/cancel", null)),
                 "cleanup" => await PrintAsync(http.DeleteAsync($"api/tasks/{Require(positional, 0, "task id")}/worktree?deleteBranch={flags.ContainsKey("delete-branch")}&force={flags.ContainsKey("force")}")),
                 "agents" => await PrintAsync(http.GetAsync("api/agents")),
+                "setup" => await SetupAsync(http, baseUrl, flags),
+                "start" => await StartAsync(http, baseUrl, quiet: false),
+                "stop" => await StopAsync(http, baseUrl),
+                "status" => await StatusAsync(http, baseUrl),
+                "open" => await OpenAsync(http, baseUrl, positional),
+                "uninstall" => await UninstallAsync(http, baseUrl, flags),
                 _ => throw new UsageException($"Unknown command '{args[0]}'. Run `orch --help`."),
             };
         }
@@ -92,6 +109,7 @@ internal static class Cli
         catch (HttpRequestException ex)
         {
             Console.Error.WriteLine($"Cannot reach the orchestrator at {baseUrl}: {ex.Message}");
+            Console.Error.WriteLine("Start it with `orch start` (or re-run the installer).");
             return 1;
         }
     }
@@ -295,7 +313,8 @@ internal static class Cli
     private static string Require(List<string> positional, int index, string what) =>
         positional.Count > index ? positional[index] : throw new UsageException($"Missing {what}. Run `orch --help`.");
 
-    private static readonly HashSet<string> BooleanFlags = ["wait", "watch", "no-uncommitted", "delete-branch", "force"];
+    private static readonly HashSet<string> BooleanFlags =
+        ["wait", "watch", "no-uncommitted", "delete-branch", "force", "yes", "autostart", "no-autostart", "no-open"];
 
     private static (List<string> Positional, Dictionary<string, string?> Flags) Parse(IEnumerable<string> args)
     {

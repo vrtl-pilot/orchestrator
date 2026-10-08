@@ -60,18 +60,39 @@ button.danger { color: var(--err); }
 .live::before { content: "●"; margin-right: 4px; color: var(--ok); }
 form.new { display: grid; gap: 8px; }
 form.new .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+header nav a { color: var(--muted); text-decoration: none; padding: 4px 10px; border-radius: 6px; }
+header nav a.on { color: var(--text); background: var(--code-bg); }
+#setupView { max-width: 1000px; margin: 0 auto; padding: 16px; }
+#setupView[hidden], main[hidden] { display: none; }
+.platform h2 .muted, .muted { color: var(--muted); font-weight: 400; }
+.chip.ok { color: var(--ok); } .chip.no { color: var(--muted); } .chip.bad { color: var(--err); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+@media (max-width: 760px) { .grid2, form.new .two { grid-template-columns: 1fr; } }
+label { display: block; font-size: 12px; color: var(--muted); }
+label > input, label > select, label > textarea { margin-top: 2px; color: var(--text); font-size: 14px; }
+details.adv summary { cursor: pointer; color: var(--muted); margin-top: 8px; }
+.steps { margin-top: 8px; }
+.steps .s { font-size: 13px; } .steps .s.ok::before { content: "✔ "; color: var(--ok); } .steps .s.fail::before { content: "✘ "; color: var(--err); }
+.switch { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
+.switch input { width: auto; }
+a { color: var(--accent); }
+.kv > div { min-width: 0; overflow-wrap: anywhere; }
+button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 760px) { header { flex-wrap: wrap; } .kv { grid-template-columns: 1fr; } .kv div:nth-child(odd) { margin-top: 6px; } }
 </style>
 </head>
 <body>
 <header>
   <h1>Agent Orchestrator</h1>
+  <nav><a href="#" id="navTasks">Tasks</a><a href="#setup" id="navSetup">Setup</a></nav>
   <button id="newBtn">New task</button>
   <span class="agents" id="agents"></span>
 </header>
-<main>
+<main id="tasksView">
   <nav id="list"></nav>
   <section id="detail"><p class="empty">Select a task to watch it live.</p></section>
 </main>
+<section id="setupView" hidden></section>
 <script>
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => (s ?? "").toString().replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -79,7 +100,7 @@ let key = (() => { try { return localStorage.getItem("orchKey") || ""; } catch {
 let selected = null, source = null;
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", ...(key ? { "X-Orchestrator-Key": key } : {}) } });
+  const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", "X-Orchestrator-Client": "dashboard", ...(key ? { "X-Orchestrator-Key": key } : {}) } });
   if (res.status === 401) {
     key = prompt("API key for this orchestrator:") || "";
     try { localStorage.setItem("orchKey", key); } catch {}
@@ -208,7 +229,10 @@ function newTaskForm() {
       </form></div>`;
   api("/api/agents").then(list => {
     const sel = $("#agentSel");
-    sel.innerHTML = list.map(a => `<option ${a.available ? "" : "disabled"}>${a.name}</option>`).join("");
+    // No preselected platform: the user chooses, as agents are told to ask.
+    sel.required = true;
+    sel.innerHTML = `<option value="">Choose a platform…</option>` + list.filter(a => a.enabled).map(a =>
+      `<option value="${esc(a.name)}" ${a.available ? "" : "disabled"}>${esc(a.displayName)}${a.available ? "" : " (not installed)"}</option>`).join("");
     const hint = () => {
       const a = list.find(x => x.name === sel.value);
       $("#modelInput").placeholder = a?.model ? `default: ${a.model}` : "agent's own default";
@@ -223,12 +247,220 @@ function newTaskForm() {
   };
 }
 
+// ---------------------------------------------------------------- Setup page (#setup)
+const lines = v => (v || "").split("\n").map(x => x.trim()).filter(Boolean);
+const stepsHtml = r => `<div class="steps">${(r.steps || []).map(st =>
+  `<div class="s ${st.ok ? "ok" : "fail"}">${esc(st.step)}${st.detail ? `<pre>${esc(st.detail)}</pre>` : ""}</div>`).join("") || "<div class='muted'>Nothing to do.</div>"}</div>`;
+
+async function renderSetup() {
+  const view = $("#setupView");
+  view.innerHTML = `<div class="card"><h2>Setup</h2><p class="muted">Loading…</p></div>`;
+  let info, platforms;
+  try { [info, platforms] = await Promise.all([api("/api/setup/info"), api("/api/setup/platforms")]); }
+  catch (e) { view.innerHTML = `<div class="card"><h2>Setup</h2><pre>${esc(e.message)}</pre></div>`; return; }
+  const a = info.autostart;
+  view.innerHTML = `
+    <div class="card"><h2>Server <span class="muted">v${esc(info.version)}</span></h2>
+      <div class="kv">
+        <div>Dashboard</div><div><a href="${esc(info.urls.dashboard)}">${esc(info.urls.dashboard)}</a></div>
+        <div>Setup</div><div><a href="${esc(info.urls.setup)}">${esc(info.urls.setup)}</a></div>
+        <div>One task</div><div><code>${esc(info.urls.task)}</code></div>
+        <div>MCP endpoint</div><div><code>${esc(info.urls.mcp)}</code> <button data-copy="${esc(info.urls.mcp)}">copy</button> <span class="muted">(for agents, not a web page)</span></div>
+        <div>Data folder</div><div><code>${esc(info.dataDirectory)}</code></div>
+        <div>Settings file</div><div><code>${esc(info.configFile)}</code></div>
+        <div>Log file</div><div><code>${esc(info.logFile || "off")}</code></div>
+      </div>
+      <div class="actions">
+        <label class="switch"><input type="checkbox" id="autostart" ${a.enabled ? "checked" : ""} ${a.supported && (info.installed || a.enabled) ? "" : "disabled"}>
+          Start automatically when I log in <span class="muted">(${esc(a.mechanism)})</span></label>
+      </div>
+      ${!info.installed ? `<p class="muted">Running from a development build. Install with <code>install.ps1</code> / <code>install.sh</code> to enable autostart.</p>` : ""}
+      ${a.note ? `<p class="muted">${esc(a.note)}</p>` : ""}
+      <div id="autostartOut"></div>
+    </div>
+    <div class="card"><h2>Platforms</h2>
+      <p class="muted" style="margin:0">Connect = register this orchestrator's MCP endpoint with the agent and install the
+      <code>agent-orchestrator</code> skill, so you can say “delegate this to …” from inside that agent.
+      Every connected agent asks you which platform to use for each task.</p>
+    </div>
+    ${platforms.map(platformCard).join("")}
+    ${addPlatformCard()}`;
+  view.querySelectorAll("[data-copy]").forEach(b => b.onclick = () => navigator.clipboard?.writeText(b.dataset.copy));
+  $("#autostart").onchange = async ev => {
+    const out = $("#autostartOut");
+    out.innerHTML = `<p class="muted">Working…</p>`;
+    try {
+      const r = await api("/api/setup/autostart", { method: "POST", body: JSON.stringify({ enabled: ev.target.checked }) });
+      ev.target.checked = r.enabled;
+      out.innerHTML = r.note ? `<pre>${esc(r.note)}</pre>` : `<p class="muted">${r.enabled ? "Enabled" : "Disabled"} (${esc(r.location || r.mechanism)}).</p>`;
+    } catch (e) { out.innerHTML = `<pre>${esc(e.message)}</pre>`; }
+  };
+  platforms.forEach(wirePlatform);
+  wireAddPlatform();
+}
+
+function platformCard(p) {
+  const mcp = p.mcpRegistered === true ? `<span class="chip ok">MCP registered</span>`
+    : p.mcpRegistered === false ? `<span class="chip no">MCP not registered</span>` : `<span class="chip no">MCP: register manually</span>`;
+  return `
+  <div class="card platform" id="p-${esc(p.name)}">
+    <h2>${esc(p.displayName)} <span class="muted"><code>${esc(p.name)}</code>${p.builtIn ? "" : " · custom"}</span>
+      ${!p.enabled ? `<span class="chip bad">disabled</span>` : p.available ? `<span class="chip ok">installed</span>` : `<span class="chip bad">not installed</span>`}
+      ${p.connected ? `<span class="chip ok">connected</span>` : `<span class="chip no">not connected</span>`}
+    </h2>
+    <div class="kv">
+      <div>Program</div><div>${p.resolvedPath ? `<code>${esc(p.resolvedPath)}</code>` : `<code>${esc(p.executable)}</code> not found${p.installHint ? ` — ${esc(p.installHint)}` : ""}`}</div>
+      <div>Orchestrator</div><div>${mcp} ${p.skillInstalled ? `<span class="chip ok">skill installed</span>` : `<span class="chip no">skill not installed</span>`}</div>
+      ${p.protocol ? `<div>Protocol</div><div><code>${esc(p.protocol)}</code></div>` : ""}
+    </div>
+    <div class="grid2" style="margin-top:8px">
+      <label>Default model<input data-f="model" value="${esc(p.model || "")}" placeholder="agent's own default"></label>
+      <label class="switch" style="align-self:end"><input type="checkbox" data-f="enabled" ${p.enabled ? "checked" : ""}> Enabled for delegation</label>
+    </div>
+    <details class="adv"><summary>Advanced</summary>
+      <div class="grid2" style="margin-top:6px">
+        <label>Program (name on PATH or full path)<input data-f="executable" value="${esc(p.executable)}"></label>
+        <label>Permission policy / extra arguments (one per line)<textarea data-f="extraArgs" rows="4">${esc((p.extraArgs || []).join("\n"))}</textarea></label>
+      </div>
+      <div class="muted" style="margin-top:4px">Skill files: ${(p.skillFiles || []).map(f => `<code>${esc(f)}</code>`).join(", ") || "none"}</div>
+    </details>
+    <div class="actions">
+      <button class="primary" data-a="connect" ${p.canConnect ? "" : "disabled title='No integration defined'"}>${p.connected ? "Reconnect" : "Connect"}</button>
+      <button data-a="disconnect">Disconnect</button>
+      <button data-a="check">Check</button>
+      <button data-a="save">Save settings</button>
+      ${p.builtIn ? "" : `<button class="danger" data-a="remove">Remove platform</button>`}
+    </div>
+    <div class="out"></div>
+  </div>`;
+}
+
+function wirePlatform(p) {
+  const card = $(`#p-${CSS.escape(p.name)}`);
+  const out = $(".out", card);
+  const field = f => $(`[data-f="${f}"]`, card);
+  const run = async (fn, label) => {
+    card.querySelectorAll("button").forEach(b => b.disabled = true);
+    out.innerHTML = `<p class="muted">${label}…</p>`;
+    try { const r = await fn(); return r; }
+    catch (e) { out.innerHTML = `<pre>${esc(e.message)}</pre>`; card.querySelectorAll("button").forEach(b => b.disabled = false); }
+  };
+  const action = async (a, label) => {
+    const r = await run(() => api(`/api/setup/platforms/${encodeURIComponent(p.name)}/${a}`, { method: "POST" }), label);
+    if (!r) return;
+    if (a === "check") { out.innerHTML = stepsHtml(r); card.querySelectorAll("button").forEach(b => b.disabled = false); return; }
+    await renderSetup();
+    const again = $(`#p-${CSS.escape(p.name)} .out`);
+    if (again) again.innerHTML = stepsHtml(r);
+  };
+  card.querySelector('[data-a="connect"]').onclick = () => action("connect", "Connecting");
+  card.querySelector('[data-a="disconnect"]').onclick = () => action("disconnect", "Disconnecting");
+  card.querySelector('[data-a="check"]').onclick = () => action("check", "Checking");
+  card.querySelector('[data-a="save"]').onclick = async () => {
+    const extra = lines(field("extraArgs").value);
+    const same = JSON.stringify(extra) === JSON.stringify(p.extraArgs || []);
+    const body = { enabled: field("enabled").checked, model: field("model").value, executable: field("executable").value, ...(same ? {} : { extraArgs: extra }) };
+    if (await run(() => api(`/api/setup/platforms/${encodeURIComponent(p.name)}`, { method: "PUT", body: JSON.stringify(body) }), "Saving")) {
+      await renderSetup();
+      const again = $(`#p-${CSS.escape(p.name)} .out`);
+      if (again) again.innerHTML = `<p class="muted">Saved to your settings file. Applies to new tasks.</p>`;
+    }
+  };
+  card.querySelector('[data-a="remove"]')?.addEventListener("click", async () => {
+    if (!confirm(`Remove ${p.displayName}? This disconnects it and deletes its settings.`)) return;
+    if (await run(() => api(`/api/setup/platforms/${encodeURIComponent(p.name)}`, { method: "DELETE" }), "Removing")) renderSetup();
+  });
+}
+
+function addPlatformCard() {
+  return `
+  <div class="card"><h2>Add a platform</h2>
+    <p class="muted" style="margin-top:0">Any coding-agent CLI that can run one non-interactive turn can be added without code.
+    Use <b>Check</b> afterwards to confirm the program runs. If its output looks like Claude Code's <code>stream-json</code>,
+    choose that protocol to get a live activity feed; otherwise <code>text</code> works with any CLI (final output only, no resume).</p>
+    <form class="new" id="addForm">
+      <div class="two">
+        <label>Name (lowercase, used as <code>agent</code>)<input name="name" required pattern="[a-z0-9][a-z0-9\\-]{0,31}" placeholder="gemini"></label>
+        <label>Display name<input name="displayName" placeholder="Gemini CLI"></label>
+      </div>
+      <div class="two">
+        <label>Program (name on PATH or full path)<input name="executable" required placeholder="gemini"></label>
+        <label>Output protocol<select name="protocol">
+          <option value="claude-stream-json">claude-stream-json (Claude Code / Qoder style)</option>
+          <option value="codex-jsonl">codex-jsonl (codex exec --json style)</option>
+          <option value="opencode-json">opencode-json (opencode run --format json style)</option>
+          <option value="text" selected>text (any CLI; plain output)</option>
+        </select></label>
+      </div>
+      <div class="two">
+        <label>Arguments for one turn (one per line; <code>{prompt}</code> optional)<textarea name="args" rows="3" placeholder="-p"></textarea></label>
+        <label>Prompt passed via<select name="promptVia"><option value="stdin">stdin</option><option value="arg">last argument / {prompt}</option></select></label>
+      </div>
+      <div class="two">
+        <label>Model arguments (one per line, <code>{model}</code>)<textarea name="modelArgs" rows="2" placeholder="--model&#10;{model}"></textarea></label>
+        <label>Resume arguments (one per line, <code>{sessionId}</code>; empty = no resume)<textarea name="resumeArgs" rows="2" placeholder="--resume&#10;{sessionId}"></textarea></label>
+      </div>
+      <div class="two">
+        <label>Permission policy / extra arguments (one per line)<textarea name="extraArgs" rows="2"></textarea></label>
+        <label>Default model<input name="model" placeholder="agent's own default"></label>
+      </div>
+      <details class="adv"><summary>Connect settings (so this agent can delegate too)</summary>
+        <div class="two" style="margin-top:6px">
+          <label>Command that registers the MCP server (one item per line; <code>{url}</code>)<textarea name="mcpAdd" rows="3" placeholder="gemini&#10;mcp&#10;add&#10;orchestrator&#10;{url}"></textarea></label>
+          <label>Command that removes it<textarea name="mcpRemove" rows="3" placeholder="gemini&#10;mcp&#10;remove&#10;orchestrator"></textarea></label>
+        </div>
+        <div class="two">
+          <label>Skill folders (one per line, <code>~</code> = home)<textarea name="skillsDirs" rows="2" placeholder="~/.gemini/skills"></textarea></label>
+          <label>Install hint shown when missing<input name="installHint" placeholder="npm i -g …"></label>
+        </div>
+        <label>Version check arguments (one per line, default <code>--version</code>)<textarea name="versionArgs" rows="1"></textarea></label>
+      </details>
+      <div class="actions"><button class="primary">Add platform</button></div>
+      <div id="addOut"></div>
+    </form>
+  </div>`;
+}
+
+function wireAddPlatform() {
+  $("#addForm").onsubmit = async ev => {
+    ev.preventDefault();
+    const f = Object.fromEntries(new FormData(ev.target));
+    const body = {
+      name: f.name.trim().toLowerCase(), displayName: f.displayName, executable: f.executable, protocol: f.protocol,
+      promptVia: f.promptVia, model: f.model, installHint: f.installHint,
+      args: lines(f.args), modelArgs: lines(f.modelArgs), resumeArgs: lines(f.resumeArgs), extraArgs: lines(f.extraArgs),
+      versionArgs: lines(f.versionArgs),
+      integration: { mcpAdd: lines(f.mcpAdd), mcpRemove: lines(f.mcpRemove), skillsDirs: lines(f.skillsDirs) },
+    };
+    try {
+      const p = await api("/api/setup/platforms", { method: "POST", body: JSON.stringify(body) });
+      await renderSetup();
+      const card = $(`#p-${CSS.escape(p.name)}`);
+      card?.scrollIntoView({ block: "center" });
+      if (card) $(".out", card).innerHTML = `<p class="muted">Added. Click <b>Check</b> to verify the program runs${p.canConnect ? ", then <b>Connect</b>" : ""}.</p>`;
+    } catch (e) { $("#addOut").innerHTML = `<pre>${esc(e.message)}</pre>`; }
+  };
+}
+
+// ---------------------------------------------------------------- routing
+function route() {
+  const setup = location.hash === "#setup";
+  $("#tasksView").hidden = setup;
+  $("#setupView").hidden = !setup;
+  $("#newBtn").hidden = setup;
+  $("#navTasks").classList.toggle("on", !setup);
+  $("#navSetup").classList.toggle("on", setup);
+  if (setup) { renderSetup(); return; }
+  const fromHash = location.hash.match(/task=([\w-]+)/);
+  if (fromHash && fromHash[1] !== selected) select(fromHash[1]);
+}
+
 $("#newBtn").onclick = newTaskForm;
 api("/api/agents").then(list => $("#agents").textContent = list.map(a => `${a.name}: ${a.available ? "ready" : a.enabled ? "not installed" : "disabled"}`).join(" · ")).catch(() => {});
-const fromHash = location.hash.match(/task=([\w-]+)/);
-if (fromHash) select(fromHash[1]);
+window.addEventListener("hashchange", route);
+route();
 refreshList();
-setInterval(refreshList, 4000);
+setInterval(() => { if (location.hash !== "#setup") refreshList(); }, 4000);
 </script>
 </body>
 </html>

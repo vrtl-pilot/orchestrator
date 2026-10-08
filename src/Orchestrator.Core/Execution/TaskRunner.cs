@@ -369,20 +369,7 @@ public sealed class TaskRunner(
     }
 
     /// <summary>Inherited variables that must not leak into agents (null = remove), see <see cref="OrchestratorOptions.ScrubEnvironmentVariables"/>.</summary>
-    internal Dictionary<string, string?> ScrubbedEnvironment()
-    {
-        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (var name in Environment.GetEnvironmentVariables().Keys.Cast<string>())
-        {
-            if (_options.ScrubEnvironmentVariables.Any(pattern => pattern.EndsWith('*')
-                    ? name.StartsWith(pattern[..^1], StringComparison.OrdinalIgnoreCase)
-                    : name.Equals(pattern, StringComparison.OrdinalIgnoreCase)))
-            {
-                env[name] = null;
-            }
-        }
-        return env;
-    }
+    internal Dictionary<string, string?> ScrubbedEnvironment() => EnvironmentScrubber.Scrubbed(_options.ScrubEnvironmentVariables);
 
     /// <summary>
     /// Shell for test commands, with a label for the event log. On Windows prefer Git Bash, so the POSIX-style

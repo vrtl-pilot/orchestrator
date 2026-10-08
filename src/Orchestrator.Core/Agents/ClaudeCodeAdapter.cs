@@ -12,6 +12,8 @@ public sealed class ClaudeCodeAdapter : IAgentAdapter
 {
     public string Name => "claude";
     public string DefaultExecutable => "claude";
+    public string DisplayName => "Claude Code";
+    public IReadOnlyList<string> DefaultExtraArgs => ["--permission-mode", "acceptEdits", "--permission-prompts", "none"];
     public string InstallHint => "npm i -g @anthropic-ai/claude-code, then run `claude` and /login";
 
     public AgentInvocation BuildInvocation(AgentTurnContext context)

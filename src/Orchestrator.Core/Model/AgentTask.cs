@@ -29,8 +29,11 @@ public static class AgentTaskStatusExtensions
 /// <summary>What a caller (Claude Code, another agent, a human) asks the orchestrator to do.</summary>
 public sealed record DelegateRequest
 {
-    /// <summary>Adapter name: <c>claude</c>, <c>codex</c> or <c>opencode</c>.</summary>
-    public required string Agent { get; init; }
+    /// <summary>
+    /// Platform name (<c>claude</c>, <c>codex</c>, <c>opencode</c>, <c>qoder</c> or a custom one). When empty, nothing is
+    /// started: the caller gets the available platforms back and should ask the user which one to use.
+    /// </summary>
+    public string? Agent { get; init; }
 
     /// <summary>Self-contained brief: goal, constraints, files of interest, acceptance criteria.</summary>
     public required string Prompt { get; init; }

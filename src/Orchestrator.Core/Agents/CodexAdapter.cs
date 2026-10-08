@@ -13,6 +13,8 @@ public sealed class CodexAdapter : IAgentAdapter
 {
     public string Name => "codex";
     public string DefaultExecutable => "codex";
+    public string DisplayName => "Codex";
+    public IReadOnlyList<string> DefaultExtraArgs => ["--sandbox", "workspace-write"];
     public string InstallHint => "npm i -g @openai/codex, then `codex login`";
 
     public AgentInvocation BuildInvocation(AgentTurnContext context)

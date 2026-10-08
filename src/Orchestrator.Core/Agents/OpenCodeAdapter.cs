@@ -15,6 +15,14 @@ public sealed class OpenCodeAdapter : IAgentAdapter
 {
     public string Name => "opencode";
     public string DefaultExecutable => "opencode";
+    public string DisplayName => "OpenCode";
+    public IReadOnlyList<string> DefaultExtraArgs => ["--auto"];
+
+    /// <summary>Headless OpenCode auto-approves (--auto), so explicit deny rules keep it inside its worktree.</summary>
+    public IReadOnlyDictionary<string, string> DefaultEnvironment => new Dictionary<string, string>
+    {
+        ["OPENCODE_PERMISSION"] = """{"bash":{"*":"allow","git push*":"deny","git reset --hard*":"deny","git checkout *":"deny","git switch *":"deny","git worktree *":"deny"},"external_directory":"deny"}""",
+    };
     public string InstallHint => "npm i -g opencode-ai, then `opencode auth login`";
 
     public AgentInvocation BuildInvocation(AgentTurnContext context)

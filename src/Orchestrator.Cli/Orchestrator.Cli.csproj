@@ -9,4 +9,9 @@
     <PackageId>Orchestrator.Cli</PackageId>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Same per-user folders as the server, without referencing the whole Core library. -->
+    <Compile Include="..\Orchestrator.Core\Setup\OrchestratorPaths.cs" Link="OrchestratorPaths.cs" />
+  </ItemGroup>
+
 </Project>

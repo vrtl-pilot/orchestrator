@@ -22,15 +22,18 @@ public sealed class OrchestratorTools(TaskService tasks, IOptions<OrchestratorOp
 
     [McpServerTool(Name = "delegate_task", Destructive = false, OpenWorld = false)]
     [Description("""
-        Delegate a coding subtask to another coding agent (claude, codex, opencode or qoder). The orchestrator creates an
-        isolated git worktree + branch from your current HEAD (including your uncommitted changes by default), runs
-        the agent there, commits its changes, optionally runs a test command, and returns a task id immediately.
-        Then call wait_task. Write a self-contained brief: goal, constraints, relevant files, acceptance criteria.
-        Your own working tree is never modified; you merge the result branch yourself when satisfied.
+        Delegate a coding subtask to another coding agent platform (claude, codex, opencode, qoder or a custom one).
+        Choosing the platform: if the user has not named one, do NOT pick yourself. Call list_agents (or call this tool
+        without agent, which starts nothing and returns the choices), ask the user which available platform to use,
+        then call this tool with agent set.
+        The orchestrator creates an isolated git worktree + branch from your current HEAD (including your uncommitted
+        changes by default), runs the agent there, commits its changes, optionally runs a test command, and returns a
+        task id immediately. Then call wait_task. Write a self-contained brief: goal, constraints, relevant files,
+        acceptance criteria. Your own working tree is never modified; you integrate the result yourself (see nextStep).
         """)]
     public async Task<string> DelegateTask(
-        [Description("Agent to use: 'claude', 'codex', 'opencode' or 'qoder'. Call list_agents to see what is available.")] string agent,
         [Description("Self-contained task brief for the delegated agent.")] string prompt,
+        [Description("Platform chosen by the user: 'claude', 'codex', 'opencode', 'qoder' or a custom name from list_agents. Leave empty to get the choices to ask the user.")] string? agent = null,
         [Description("Absolute path of the repository (any path inside it). Use your current working directory.")] string? repo_path = null,
         [Description("Optional commit-ish to branch from instead of your current HEAD + uncommitted changes.")] string? base_ref = null,
         [Description("Include your uncommitted/untracked changes in the base (default true). Ignored when base_ref is set.")] bool include_uncommitted = true,
@@ -41,6 +44,12 @@ public sealed class OrchestratorTools(TaskService tasks, IOptions<OrchestratorOp
         [Description("Optional idempotency key; retrying with the same key returns the existing task.")] string? client_request_id = null,
         CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(agent))
+        {
+            // Not an error: tell the caller what to ask the user.
+            return Json(tasks.AgentChoices());
+        }
+
         var task = await Guard(() => tasks.DelegateAsync(new DelegateRequest
         {
             Agent = agent,
@@ -152,8 +161,15 @@ public sealed class OrchestratorTools(TaskService tasks, IOptions<OrchestratorOp
     }
 
     [McpServerTool(Name = "list_agents", ReadOnly = true)]
-    [Description("List the coding agents this orchestrator can run and whether their CLIs are installed.")]
-    public string ListAgents() => Json(tasks.DescribeAgents());
+    [Description("""
+        List the coding agent platforms this orchestrator can run: which are available (installed and enabled), their
+        default model, and how to install the missing ones. Use it to ask the user which platform to delegate to.
+        """)]
+    public string ListAgents() => Json(tasks.AgentChoices() with
+    {
+        Status = "ok",
+        Instruction = "Ask the user which available platform to use unless they already said; then call delegate_task with agent set.",
+    });
 
     private static async Task<T> Guard<T>(Func<Task<T>> action)
     {

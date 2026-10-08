@@ -24,6 +24,7 @@ public sealed class TaskService(
     public async Task<AgentTask> DelegateAsync(DelegateRequest request, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt)) throw new OrchestratorException("prompt is required.");
+        if (string.IsNullOrWhiteSpace(request.Agent)) throw new AgentSelectionRequiredException(AgentChoices());
         if (!agents.TryGet(request.Agent, out var adapter, out _))
         {
             throw new OrchestratorException(
@@ -65,7 +66,7 @@ public sealed class TaskService(
         var task = new AgentTask
         {
             Id = NewId(),
-            Agent = request.Agent.ToLowerInvariant(),
+            Agent = adapter.Name,
             Prompt = request.Prompt,
             RepoRoot = repoRoot,
             BaseRef = string.IsNullOrWhiteSpace(request.BaseRef) ? null : request.BaseRef,
@@ -214,6 +215,19 @@ public sealed class TaskService(
         events.FollowAsync(id, afterSeq, ct);
 
     public IReadOnlyList<AgentInfo> DescribeAgents() => agents.Describe();
+
+    /// <summary>The platforms to offer the user when a delegation doesn't name one.</summary>
+    public AgentChoices AgentChoices()
+    {
+        var all = agents.Describe().Where(a => a.Enabled).ToList();
+        return new AgentChoices(
+            "agent_selection_required",
+            all.Where(a => a.Available).Select(a => new AgentChoice(a.Name, a.DisplayName, a.Model ?? "its own default", null)).ToList(),
+            all.Where(a => !a.Available).Select(a => new AgentChoice(a.Name, a.DisplayName, null, a.InstallHint)).ToList(),
+            "No platform was chosen, so nothing was started. Ask the user which of the available platforms should do this task "
+            + "(list them with their models, e.g. with your ask-user tool), then call delegate_task again with agent set to their choice. "
+            + "Do not choose for them.");
+    }
 
     private async Task<AgentTask> RequeueAsync(AgentTask task, string message, string logText, CancellationToken ct)
     {

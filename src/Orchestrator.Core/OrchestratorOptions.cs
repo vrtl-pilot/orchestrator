@@ -11,15 +11,11 @@ public sealed class OrchestratorOptions
     /// </summary>
     public string DataDirectory { get; set; } = "";
 
-    /// <summary><c>%LOCALAPPDATA%\agent-orchestrator</c> on Windows, <c>~/.local/share/agent-orchestrator</c> on Linux.</summary>
-    public static string DefaultDataDirectory
-    {
-        get
-        {
-            var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.Create);
-            return string.IsNullOrEmpty(root) ? Path.GetFullPath("data") : Path.Combine(root, "agent-orchestrator");
-        }
-    }
+    /// <summary>Same per-user folder as <see cref="Setup.OrchestratorPaths.Root"/>.</summary>
+    public static string DefaultDataDirectory => Setup.OrchestratorPaths.Root;
+
+    /// <summary>Server log file. Empty = <c>{DataDirectory}/logs/server.log</c>; <c>"off"</c> disables file logging.</summary>
+    public string LogFile { get; set; } = "";
 
     /// <summary>Repository used when a request does not name one.</summary>
     public string? DefaultRepository { get; set; }
@@ -93,6 +89,12 @@ public sealed class OrchestratorOptions
     /// <summary>Optional shared secret; when set, API and MCP requests must send <c>X-Orchestrator-Key</c>.</summary>
     public string? ApiKey { get; set; }
 
+    /// <summary>
+    /// Host names accepted in addition to localhost/127.0.0.1/[::1] and the PublicUrl host, e.g. a Docker service
+    /// name. Requests with any other Host header are rejected (protects against DNS rebinding).
+    /// </summary>
+    public List<string> TrustedHosts { get; set; } = [];
+
     public Dictionary<string, AgentOptions> Agents { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
@@ -123,4 +125,53 @@ public sealed class AgentOptions
     /// watch them live with <c>opencode attach {url} --session {id}</c>.
     /// </summary>
     public string? AttachUrl { get; set; }
+
+    // ---- Custom platforms (agents without a built-in adapter) -------------------------------------------------
+    // Any CLI can be added from the Setup page or config.json without code. Placeholders: {model}, {sessionId},
+    // {prompt}. See ConfiguredAgentAdapter.
+
+    /// <summary>Name shown in the UI, e.g. "Gemini CLI".</summary>
+    public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// Output protocol of a custom agent: <c>claude-stream-json</c>, <c>codex-jsonl</c>, <c>opencode-json</c> or <c>text</c>.
+    /// Ignored for built-in agents.
+    /// </summary>
+    public string? Protocol { get; set; }
+
+    /// <summary>Base arguments for one non-interactive turn, e.g. <c>["-p", "--output-format", "stream-json"]</c>.</summary>
+    public List<string>? Args { get; set; }
+
+    /// <summary>Added when a model is requested, e.g. <c>["--model", "{model}"]</c>.</summary>
+    public List<string>? ModelArgs { get; set; }
+
+    /// <summary>Added to resume a session, e.g. <c>["--resume", "{sessionId}"]</c>. Without it, answers start a new turn with context.</summary>
+    public List<string>? ResumeArgs { get; set; }
+
+    /// <summary><c>stdin</c> (default) or <c>arg</c> (appended last, or wherever <c>{prompt}</c> appears in Args).</summary>
+    public string? PromptVia { get; set; }
+
+    /// <summary>Arguments for the Setup page's "Check" button (default <c>["--version"]</c>).</summary>
+    public List<string>? VersionArgs { get; set; }
+
+    public string? InstallHint { get; set; }
+
+    /// <summary>How to connect this platform to the orchestrator (MCP registration + skill folders).</summary>
+    public IntegrationOptions? Integration { get; set; }
+}
+
+/// <summary>
+/// How the setup wizard / Setup page connects an agent to the orchestrator. Built-in agents have defaults in code;
+/// custom agents describe it here. Placeholders: {url} (MCP endpoint), {name} (server name "orchestrator").
+/// </summary>
+public sealed class IntegrationOptions
+{
+    /// <summary>Command (program + args) that registers the MCP server, e.g. <c>["gemini","mcp","add","orchestrator","{url}"]</c>.</summary>
+    public List<string>? McpAdd { get; set; }
+
+    /// <summary>Command that removes the registration.</summary>
+    public List<string>? McpRemove { get; set; }
+
+    /// <summary>User skill folders (<c>~</c> = home); the agent-orchestrator skill is written into each.</summary>
+    public List<string>? SkillsDirs { get; set; }
 }

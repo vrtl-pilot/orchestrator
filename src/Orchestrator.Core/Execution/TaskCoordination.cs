@@ -8,6 +8,22 @@ public class OrchestratorException(string message) : Exception(message);
 
 public sealed class TaskNotFoundException(string taskId) : OrchestratorException($"Task '{taskId}' not found.");
 
+/// <summary>Thrown when a delegation names no platform: the caller must ask the user to choose one.</summary>
+public sealed class AgentSelectionRequiredException(AgentChoices choices)
+    : OrchestratorException(choices.Instruction)
+{
+    public AgentChoices Choices { get; } = choices;
+}
+
+/// <summary>What the caller shows the user when asking which platform to delegate to.</summary>
+public sealed record AgentChoices(
+    string Status,
+    IReadOnlyList<AgentChoice> Available,
+    IReadOnlyList<AgentChoice> Unavailable,
+    string Instruction);
+
+public sealed record AgentChoice(string Agent, string DisplayName, string? Model, string? InstallHint);
+
 /// <summary>Shared in-process coordination between <see cref="TaskService"/> and <see cref="TaskRunner"/>.</summary>
 public sealed class TaskCoordination
 {

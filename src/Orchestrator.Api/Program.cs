@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.Options;
 using Orchestrator.Api;
 using Orchestrator.Core;
@@ -10,6 +11,7 @@ using Orchestrator.Core.Events;
 using Orchestrator.Core.Execution;
 using Orchestrator.Core.Git;
 using Orchestrator.Core.Model;
+using Orchestrator.Core.Setup;
 using Orchestrator.Core.Storage;
 
 // A published build may be started from any folder (shortcut, service, other repo). Read appsettings.json and
@@ -22,6 +24,15 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         : AppContext.BaseDirectory,
 });
 
+// The user's own settings (written by the Setup page / orch setup) override the shipped appsettings.json, which an
+// upgrade replaces. Environment variables and command-line arguments still win over both.
+var userConfig = new UserConfigStore(OrchestratorPaths.ConfigFile);
+var userConfigSource = new JsonConfigurationSource { Path = userConfig.Path, Optional = true, ReloadOnChange = true };
+userConfigSource.ResolveFileProvider();
+var lastJson = builder.Configuration.Sources.ToList().FindLastIndex(s => s is JsonConfigurationSource);
+builder.Configuration.Sources.Insert(lastJson + 1, userConfigSource);
+builder.Services.AddSingleton(userConfig);
+
 builder.Services.Configure<OrchestratorOptions>(builder.Configuration.GetSection(OrchestratorOptions.SectionName));
 builder.Services.PostConfigure<OrchestratorOptions>(o => o.DataDirectory = string.IsNullOrWhiteSpace(o.DataDirectory)
     ? OrchestratorOptions.DefaultDataDirectory
@@ -31,7 +42,20 @@ builder.Services.AddSingleton<IAgentAdapter, ClaudeCodeAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, CodexAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, OpenCodeAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, QoderAdapter>();
-builder.Services.AddSingleton<AgentRegistry>();
+builder.Services.AddSingleton(sp =>
+{
+    // Read options on every call so platforms added/edited in config.json apply without a restart.
+    var monitor = sp.GetRequiredService<IOptionsMonitor<OrchestratorOptions>>();
+    return new AgentRegistry(sp.GetServices<IAgentAdapter>(), () => monitor.CurrentValue);
+});
+builder.Services.AddSingleton(sp =>
+{
+    var monitor = sp.GetRequiredService<IOptionsMonitor<OrchestratorOptions>>();
+    return new PlatformSetupService(
+        sp.GetRequiredService<AgentRegistry>(),
+        () => monitor.CurrentValue,
+        () => (monitor.CurrentValue.PublicUrl ?? "http://127.0.0.1:7777").TrimEnd('/') + "/mcp");
+});
 builder.Services.AddSingleton<ITaskStore>(sp =>
     new SqliteTaskStore(Path.Combine(sp.GetRequiredService<IOptions<OrchestratorOptions>>().Value.DataDirectory, "orchestrator.db")));
 builder.Services.AddSingleton(sp => new TaskEventLog(sp.GetRequiredService<IOptions<OrchestratorOptions>>().Value.DataDirectory));
@@ -52,15 +76,37 @@ builder.Services
     .WithHttpTransport(o => o.Stateless = true)
     .WithTools<OrchestratorTools>();
 
+// When started at login there is no console, so also log to a file (Orchestrator:LogFile, "off" disables).
+var bootOptions = new OrchestratorOptions();
+builder.Configuration.GetSection(OrchestratorOptions.SectionName).Bind(bootOptions);
+bootOptions.DataDirectory = string.IsNullOrWhiteSpace(bootOptions.DataDirectory)
+    ? OrchestratorOptions.DefaultDataDirectory
+    : Path.GetFullPath(bootOptions.DataDirectory);
+if (SetupEndpoints.ResolveLogFile(bootOptions) is { } logFile)
+{
+    builder.Logging.AddProvider(new FileLoggerProvider(logFile));
+}
+
 var app = builder.Build();
 var options = app.Services.GetRequiredService<IOptions<OrchestratorOptions>>().Value;
+var monitor = app.Services.GetRequiredService<IOptionsMonitor<OrchestratorOptions>>();
+var listeningUrl = (string?)null;
+
+// PublicUrl defaults to the address the server actually listens on; keep it set on every config reload too.
+monitor.OnChange(o => o.PublicUrl ??= listeningUrl);
 
 app.Lifetime.ApplicationStarted.Register(() =>
 {
-    options.PublicUrl ??= app.Urls.FirstOrDefault()?.Replace("0.0.0.0", "127.0.0.1").Replace("[::]", "127.0.0.1");
-    app.Logger.LogInformation("Orchestrator ready. Dashboard: {Url}  MCP: {Url}/mcp  Data: {Data}",
-        options.PublicUrl, options.PublicUrl, options.DataDirectory);
+    listeningUrl = app.Urls.FirstOrDefault()?.Replace("0.0.0.0", "127.0.0.1").Replace("[::]", "127.0.0.1").Replace("://+", "://127.0.0.1").Replace("://*", "://127.0.0.1");
+    options.PublicUrl ??= listeningUrl;
+    monitor.CurrentValue.PublicUrl ??= listeningUrl;
+    new ServerState(Environment.ProcessId, options.PublicUrl ?? "", options.DataDirectory, SetupEndpoints.Version, DateTimeOffset.Now).Write();
+    app.Logger.LogInformation("Orchestrator {Version} ready. Dashboard: {Url}/  Setup: {Url}/#setup  MCP: {Url}/mcp  Data: {Data}",
+        SetupEndpoints.Version, options.PublicUrl, options.PublicUrl, options.PublicUrl, options.DataDirectory);
 });
+app.Lifetime.ApplicationStopped.Register(() => ServerState.Delete(Environment.ProcessId));
+
+app.UseLocalSecurity();
 
 // Optional shared-secret protection for the API and MCP endpoints: X-Orchestrator-Key header,
 // Authorization: Bearer (what Codex's --bearer-token-env-var sends), or ?key= (EventSource cannot set headers).
@@ -93,6 +139,11 @@ app.Use(async (context, next) =>
     {
         await next();
     }
+    catch (AgentSelectionRequiredException ex) when (!context.Response.HasStarted)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsJsonAsync(ex.Choices, OrchestratorJson.Options);
+    }
     catch (TaskNotFoundException ex) when (!context.Response.HasStarted)
     {
         context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -108,7 +159,7 @@ app.Use(async (context, next) =>
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok", version = SetupEndpoints.Version, pid = Environment.ProcessId }));
 app.MapMcp("/mcp");
 
 var api = app.MapGroup("/api");
@@ -166,6 +217,15 @@ api.MapGet("/tasks/{id}/events", async (string id, long? after, bool? follow, Ta
     _ = await tasks.GetAsync(id, ct) ?? throw new TaskNotFoundException(id);
     if (follow == false) return Results.Ok(tasks.GetEvents(id, after ?? 0, 1000));
     return TypedResults.ServerSentEvents(Serialize(tasks.FollowEventsAsync(id, after ?? 0, ct)), eventType: "agent-event");
+});
+
+app.MapSetup();
+
+api.MapPost("/admin/shutdown", (IHostApplicationLifetime lifetime) =>
+{
+    // Respond first, then stop.
+    _ = Task.Delay(200).ContinueWith(_ => lifetime.StopApplication(), TaskScheduler.Default);
+    return Results.Accepted(value: new { status = "stopping", pid = Environment.ProcessId });
 });
 
 app.Run();

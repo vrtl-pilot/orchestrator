@@ -4,6 +4,7 @@
 #   ./install.sh                     build, install, then run the guided `orch setup`
 #   ./install.sh --no-setup          install only
 #   ./install.sh --start             start the installed server (no rebuild) and open the dashboard
+#   ./install.sh --restart           stop the running server and start it again (no rebuild)
 #   ./install.sh --agents claude,qoder --yes     non-interactive setup (other flags go to `orch setup`)
 #   ./install.sh --uninstall [--purge]           disconnect agents, remove autostart and the app (--purge: also task data/settings)
 #
@@ -11,7 +12,7 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-setup=1 uninstall=0 purge=0 start=0
+setup=1 uninstall=0 purge=0 start=0 restart=0
 setup_args=()
 for arg in "$@"; do
   case "$arg" in
@@ -19,7 +20,8 @@ for arg in "$@"; do
     --uninstall) uninstall=1 ;;
     --purge) purge=1 ;;
     --start) start=1 ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    --restart) restart=1 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) setup_args+=("$arg") ;;
   esac
 done
@@ -45,6 +47,12 @@ if [[ $uninstall == 1 ]]; then
   [[ -L "$link" ]] && rm -f "$link"
   if [[ $purge == 1 ]]; then rm -rf "$root"; say "Removed $root (tasks, logs, settings)."; else say "App removed. Tasks and settings kept in $root (use --purge to delete)."; fi
   exit 0
+fi
+
+if [[ $restart == 1 ]]; then
+  [[ -x "$app/orch" ]] || fail "Agent Orchestrator is not installed yet. Run ./install.sh first."
+  "$app/orch" stop
+  exec "$app/orch" start
 fi
 
 if [[ $start == 1 ]]; then

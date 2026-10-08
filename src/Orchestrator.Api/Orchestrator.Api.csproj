@@ -2,6 +2,9 @@
 
   <PropertyGroup>
     <RootNamespace>Orchestrator.Api</RootNamespace>
+    <!-- install.ps1 sets this so the server started at login shows no console window. (Passing -p:OutputType=WinExe
+         instead would also apply to the Core library and break its build.) -->
+    <OutputType Condition="'$(OrchestratorWindowless)' == 'true'">WinExe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>

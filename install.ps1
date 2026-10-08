@@ -64,7 +64,7 @@ $stage = Join-Path ([IO.Path]::GetTempPath()) ("orch-install-" + [Guid]::NewGuid
 $env:DOTNET_NOLOGO = '1'; $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 Say "Building Agent Orchestrator ($rid)..."
 try {
-  dotnet publish "$repo\src\Orchestrator.Api" -c Release -r $rid --self-contained -o "$stage\app" -p:OutputType=WinExe -v quiet -nologo
+  dotnet publish "$repo\src\Orchestrator.Api" -c Release -r $rid --self-contained -o "$stage\app" -p:OrchestratorWindowless=true -v quiet -nologo
   if ($LASTEXITCODE -ne 0) { throw 'Building the server failed.' }
   dotnet publish "$repo\src\Orchestrator.Cli" -c Release -r $rid --self-contained -o "$stage\app" -v quiet -nologo
   if ($LASTEXITCODE -ne 0) { throw 'Building orch failed.' }

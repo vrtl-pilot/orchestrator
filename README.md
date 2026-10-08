@@ -172,6 +172,23 @@ orch cleanup <task-id> --delete-branch
 
 `orch wait` / `delegate --wait` exit codes: `0` completed, `2` input required, `1` failed/cancelled, `3` still running.
 
+## Commands delegated agents may run
+
+By default delegated agents may run **any `dotnet` command** (`dotnet build`, `dotnet test`, `dotnet restore`, …), and the task's
+own `test_command` is always allowed too. The task brief tells the agent these are pre-approved and asks it to build and test before
+finishing.
+
+| Agent | What happens to shell commands |
+|---|---|
+| Claude Code, Qoder | Headless runs refuse every command that isn't pre-approved. The allowed commands are passed as `--allowed-tools` rules for both the `Bash` and the Windows `PowerShell` tool (e.g. `Bash(dotnet *)`) |
+| OpenCode | All commands allowed except risky git ones (`OPENCODE_PERMISSION` in its defaults) |
+| Codex | Runs commands in its `workspace-write` sandbox. Network access inside the sandbox is on by default (`-c sandbox_workspace_write.network_access=true`) so `dotnet restore` / `npm install` can download packages |
+
+Change the list on the **Setup page → "Commands delegated agents may run"** (one prefix per line, e.g. `dotnet`, `npm test`,
+`pytest`), or set `Orchestrator:AllowedCommands` in your settings file (`[""]` = none). Changes apply to the next agent turn.
+If you replaced an agent's **Permission policy / extra arguments** yourself, its defaults (such as Codex's network setting) no
+longer apply; use **Reset arguments to default** on its Setup card.
+
 ## Adding a platform
 
 **New project:** nothing to do. Any Git repository works.
@@ -263,9 +280,10 @@ dashboard and `orch` do this. It stops web pages on other sites from driving the
 | `Orchestrator:MaxConcurrentTasks` / `Agents:<name>:MaxConcurrent` | 3 / 2 | Subscription plans share rate limits across parallel runs |
 | `Orchestrator:DefaultTimeoutMinutes` / `IdleTimeoutMinutes` | 60 / 15 | Hard limit and no-output watchdog (kills the whole process tree) |
 | `Orchestrator:MaxDepth` | 2 | Stops delegation loops (A → B → A …) |
+| `Orchestrator:AllowedCommands` | `["dotnet"]` | Commands delegated agents may run (see *Commands delegated agents may run*) |
 | `Orchestrator:CopyIntoWorktree` | `[]` | Gitignored files a worktree needs, e.g. `.env.local` |
 | `Orchestrator:ScrubEnvironmentVariables` | session/IPC vars | Stops children from inheriting the parent agent's session identity (see below) |
-| `Agents:<name>:ExtraArgs` | built in | **Permission policy per agent** (`--permission-mode acceptEdits`, `--sandbox workspace-write`, `--auto` + `OPENCODE_PERMISSION` deny rules, Qoder `--permission-mode accept_edits`) |
+| `Agents:<name>:ExtraArgs` | built in | **Permission policy per agent** (`--permission-mode acceptEdits`, `--sandbox workspace-write` + network, `--auto` + `OPENCODE_PERMISSION` deny rules, Qoder `--permission-mode accept_edits`) |
 | `Agents:<name>:Model`, `Executable`, `Environment`, `Enabled` | | Model default, binary path, extra env (e.g. API keys), hide from delegation |
 | `Agents:<name>:Protocol`, `Args`, … | | Custom platforms (see *Adding a platform*) |
 | `Agents:opencode:AttachUrl` | none | Run OpenCode tasks inside a shared `opencode serve` so you can attach live |

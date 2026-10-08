@@ -182,7 +182,8 @@ public sealed class TaskRunner(
         var scratch = Path.GetFullPath(Path.Combine(ScratchRoot, task.Id));
         Directory.CreateDirectory(scratch);
 
-        var message = task.NextMessage ?? TaskBrief.FirstTurn(task, _options.InputRequestMarker);
+        var allowed = AllowedCommandsFor(task);
+        var message = task.NextMessage ?? TaskBrief.FirstTurn(task, _options.InputRequestMarker, allowed);
         var invocation = adapter.BuildInvocation(new AgentTurnContext
         {
             Task = task,
@@ -190,6 +191,7 @@ public sealed class TaskRunner(
             ResumeSessionId = task.SessionId,
             ScratchDirectory = scratch,
             Options = agentOptions,
+            AllowedCommands = allowed,
         });
 
         var parser = adapter.CreateParser();
@@ -317,6 +319,14 @@ public sealed class TaskRunner(
         }
 
         return string.IsNullOrWhiteSpace(finalMessage) ? "(the agent finished without a final message)" : finalMessage;
+    }
+
+    /// <summary>Configured allowed commands plus the task's own test command, so the agent can run the same check.</summary>
+    private IReadOnlyList<string> AllowedCommandsFor(AgentTask task)
+    {
+        var commands = agents.CurrentOptions.EffectiveAllowedCommands.ToList();
+        if (task.TestCommand is { Length: > 0 } test && !commands.Contains(test.Trim())) commands.Add(test.Trim());
+        return commands;
     }
 
     private async Task CommitWorkAsync(AgentTask task, string message, CancellationToken ct)

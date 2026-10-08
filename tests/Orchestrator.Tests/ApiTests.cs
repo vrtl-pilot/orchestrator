@@ -143,4 +143,20 @@ public sealed class ApiTests : IDisposable
             (await client.PostAsJsonAsync("/api/setup/platforms", new { name = "ok", executable = "x", protocol = "xml" })).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.DeleteAsync("/api/setup/platforms/claude")).StatusCode);
     }
+
+    [Fact]
+    public async Task Allowed_commands_are_saved_to_the_settings_file()
+    {
+        var client = Client();
+        Assert.Equal(["dotnet"], (await client.GetFromJsonAsync<JsonObject>("/api/setup/info"))!["allowedCommands"]!.AsArray().Select(n => n!.GetValue<string>()));
+
+        var saved = await (await client.PutAsJsonAsync("/api/setup/settings", new { allowedCommands = new[] { "dotnet", "npm test" } })).Content.ReadFromJsonAsync<JsonObject>();
+        Assert.Equal(["dotnet", "npm test"], saved!["allowedCommands"]!.AsArray().Select(n => n!.GetValue<string>()));
+        var config = JsonNode.Parse(File.ReadAllText(Path.Combine(_home, "config.json")))!;
+        Assert.Equal(5, config["Orchestrator"]!["MaxDepth"]!.GetValue<int>());
+        Assert.Equal(2, config["Orchestrator"]!["AllowedCommands"]!.AsArray().Count);
+
+        var cleared = await (await client.PutAsJsonAsync("/api/setup/settings", new { allowedCommands = Array.Empty<string>() })).Content.ReadFromJsonAsync<JsonObject>();
+        Assert.Empty(cleared!["allowedCommands"]!.AsArray());
+    }
 }

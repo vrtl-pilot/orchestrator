@@ -39,6 +39,9 @@ public sealed class AgentRegistry
     {
     }
 
+    /// <summary>Current options (re-read on every call, so Setup page edits apply to the next task turn).</summary>
+    public OrchestratorOptions CurrentOptions => _options();
+
     public IReadOnlyCollection<string> Names => All().Select(a => a.Name).ToList();
 
     public bool IsBuiltIn(string name) => _builtIn.ContainsKey(name);

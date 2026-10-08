@@ -44,7 +44,22 @@ public static partial class SetupEndpoints
                 ServerExecutable = Environment.ProcessPath,
                 Autostart = await Autostart.StatusAsync(ct),
                 ApiKeyConfigured = !string.IsNullOrEmpty(o.ApiKey),
+                AllowedCommands = o.EffectiveAllowedCommands,
             };
+        });
+
+        // Settings that apply to every platform.
+        setup.MapPut("/settings", (SettingsRequest body, UserConfigStore config, IConfiguration configuration,
+            IOptionsMonitor<OrchestratorOptions> monitor) =>
+        {
+            if (body.AllowedCommands is { } commands)
+            {
+                var clean = commands.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).Distinct().ToList();
+                // An empty JSON array never reaches the options binder; [""] means "none".
+                config.UpdateOrchestrator(o => o["AllowedCommands"] = new JsonArray([.. (clean.Count > 0 ? clean : [""]).Select(c => JsonValue.Create(c))]));
+            }
+            Reload(configuration);
+            return new { AllowedCommands = monitor.CurrentValue.EffectiveAllowedCommands };
         });
 
         setup.MapGet("/platforms", (PlatformSetupService service) => service.List());
@@ -179,3 +194,5 @@ public sealed record CustomPlatformRequest(
     IntegrationOptions? Integration);
 
 public sealed record AutostartRequest(bool Enabled);
+
+public sealed record SettingsRequest(List<string>? AllowedCommands);

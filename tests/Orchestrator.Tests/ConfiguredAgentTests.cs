@@ -104,8 +104,51 @@ public class ConfiguredAgentTests
 
         // Config that doesn't set ExtraArgs gets the adapter's permission defaults.
         Assert.Equal(["--permission-mode", "acceptEdits", "--permission-prompts", "none"], registry.OptionsFor("claude").ExtraArgs);
-        Assert.Equal(["--sandbox", "workspace-write"], registry.OptionsFor("codex").ExtraArgs);
+        Assert.Equal(["--sandbox", "workspace-write", "-c", "sandbox_workspace_write.network_access=true"], registry.OptionsFor("codex").ExtraArgs);
         Assert.True(registry.TryGet("GEMINI", out var adapter, out _));
         Assert.IsType<ConfiguredAgentAdapter>(adapter);
+    }
+
+    [Fact]
+    public void Claude_and_Qoder_pre_approve_allowed_commands_for_bash_and_powershell()
+    {
+        var task = new AgentTask { Id = "t", Agent = "claude", Prompt = "p", RepoRoot = "/r" };
+        var options = new AgentOptions { ExtraArgs = ["--permission-mode", "acceptEdits"] };
+        var context = new AgentTurnContext
+        {
+            Task = task, Message = "m", ScratchDirectory = "/tmp", Options = options,
+            AllowedCommands = ["dotnet", "npm test", "bad)cmd"],
+        };
+
+        foreach (IAgentAdapter adapter in new IAgentAdapter[] { new ClaudeCodeAdapter(), new QoderAdapter() })
+        {
+            var args = adapter.BuildInvocation(context).Arguments.ToList();
+            var rules = args.Where((a, i) => i > 0 && args[i - 1] == "--allowed-tools").ToList();
+            Assert.Equal(
+                ["Bash(dotnet)", "Bash(dotnet *)", "PowerShell(dotnet)", "PowerShell(dotnet *)",
+                 "Bash(npm test)", "Bash(npm test *)", "PowerShell(npm test)", "PowerShell(npm test *)"], rules);
+            // The user's own arguments still come last.
+            Assert.Equal(["--permission-mode", "acceptEdits"], args[^2..]);
+        }
+
+        var none = new ClaudeCodeAdapter().BuildInvocation(context with { AllowedCommands = [] });
+        Assert.DoesNotContain("--allowed-tools", none.Arguments);
+    }
+
+    [Fact]
+    public void Allowed_commands_default_to_dotnet_and_blank_means_none()
+    {
+        Assert.Equal(["dotnet"], new OrchestratorOptions().EffectiveAllowedCommands);
+        Assert.Empty(new OrchestratorOptions { AllowedCommands = [""] }.EffectiveAllowedCommands);
+        Assert.Equal(["npm test", "dotnet"], new OrchestratorOptions { AllowedCommands = [" npm test ", "", "dotnet", "dotnet"] }.EffectiveAllowedCommands);
+    }
+
+    [Fact]
+    public void Brief_lists_the_pre_approved_commands()
+    {
+        var task = new AgentTask { Id = "t", Agent = "claude", Prompt = "p", RepoRoot = "/r", TestCommand = "dotnet test" };
+        var brief = TaskBrief.FirstTurn(task, "NEEDS_INPUT:", ["dotnet", "dotnet test"]);
+        Assert.Contains("Pre-approved commands you can run (with any arguments): `dotnet`, `dotnet test`.", brief);
+        Assert.DoesNotContain("Pre-approved", TaskBrief.FirstTurn(task, "NEEDS_INPUT:", []));
     }
 }

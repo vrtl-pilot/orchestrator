@@ -278,6 +278,14 @@ async function renderSetup() {
       ${a.note ? `<p class="muted">${esc(a.note)}</p>` : ""}
       <div id="autostartOut"></div>
     </div>
+    <div class="card"><h2>Commands delegated agents may run</h2>
+      <p class="muted" style="margin-top:0">One command prefix per line; each is allowed with any arguments (e.g. <code>dotnet</code>,
+      <code>npm test</code>, <code>pytest</code>). A task's own test command is always allowed. Claude Code and Qoder refuse every other
+      shell command; OpenCode allows all commands except risky git ones; Codex runs commands in its sandbox (with network access).</p>
+      <textarea id="allowedCommands" rows="4">${esc((info.allowedCommands || []).join("\n"))}</textarea>
+      <div class="actions"><button class="primary" id="saveAllowed">Save</button></div>
+      <div id="allowedOut"></div>
+    </div>
     <div class="card"><h2>Platforms</h2>
       <p class="muted" style="margin:0">Connect = register this orchestrator's MCP endpoint with the agent and install the
       <code>agent-orchestrator</code> skill, so you can say “delegate this to …” from inside that agent.
@@ -294,6 +302,13 @@ async function renderSetup() {
       ev.target.checked = r.enabled;
       out.innerHTML = r.note ? `<pre>${esc(r.note)}</pre>` : `<p class="muted">${r.enabled ? "Enabled" : "Disabled"} (${esc(r.location || r.mechanism)}).</p>`;
     } catch (e) { out.innerHTML = `<pre>${esc(e.message)}</pre>`; }
+  };
+  $("#saveAllowed").onclick = async () => {
+    try {
+      const r = await api("/api/setup/settings", { method: "PUT", body: JSON.stringify({ allowedCommands: lines($("#allowedCommands").value) }) });
+      $("#allowedCommands").value = r.allowedCommands.join("\n");
+      $("#allowedOut").innerHTML = `<p class="muted">Saved. Applies to the next agent turn${r.allowedCommands.length ? "" : " (no commands are pre-approved now)"}.</p>`;
+    } catch (e) { $("#allowedOut").innerHTML = `<pre>${esc(e.message)}</pre>`; }
   };
   platforms.forEach(wirePlatform);
   wireAddPlatform();
@@ -322,6 +337,7 @@ function platformCard(p) {
         <label>Program (name on PATH or full path)<input data-f="executable" value="${esc(p.executable)}"></label>
         <label>Permission policy / extra arguments (one per line)<textarea data-f="extraArgs" rows="4">${esc((p.extraArgs || []).join("\n"))}</textarea></label>
       </div>
+      <div class="actions"><button data-a="reset">Reset arguments to default</button></div>
       <div class="muted" style="margin-top:4px">Skill files: ${(p.skillFiles || []).map(f => `<code>${esc(f)}</code>`).join(", ") || "none"}</div>
     </details>
     <div class="actions">
@@ -364,6 +380,13 @@ function wirePlatform(p) {
       await renderSetup();
       const again = $(`#p-${CSS.escape(p.name)} .out`);
       if (again) again.innerHTML = `<p class="muted">Saved to your settings file. Applies to new tasks.</p>`;
+    }
+  };
+  card.querySelector('[data-a="reset"]').onclick = async () => {
+    if (await run(() => api(`/api/setup/platforms/${encodeURIComponent(p.name)}`, { method: "PUT", body: JSON.stringify({ resetExtraArgs: true }) }), "Resetting")) {
+      await renderSetup();
+      const again = $(`#p-${CSS.escape(p.name)} .out`);
+      if (again) again.innerHTML = `<p class="muted">Arguments reset to the built-in defaults.</p>`;
     }
   };
   card.querySelector('[data-a="remove"]')?.addEventListener("click", async () => {

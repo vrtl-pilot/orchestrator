@@ -26,6 +26,7 @@ public sealed class QoderAdapter : IAgentAdapter
         var model = context.Task.Model ?? context.Options.Model;
         if (model is not null) args.AddRange(["--model", model]);
         if (context.ResumeSessionId is not null) args.AddRange(["--resume", context.ResumeSessionId]);
+        args.AddRange(AllowedToolRules.Args(context.AllowedCommands));
         args.AddRange(context.Options.ExtraArgs ?? []);
 
         return new AgentInvocation

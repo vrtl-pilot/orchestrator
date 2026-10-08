@@ -11,7 +11,7 @@ namespace Orchestrator.Core.Execution;
 /// </summary>
 public static class TaskBrief
 {
-    public static string FirstTurn(AgentTask task, string marker)
+    public static string FirstTurn(AgentTask task, string marker, IReadOnlyList<string>? allowedCommands = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine(task.Prompt.Trim());
@@ -23,6 +23,10 @@ public static class TaskBrief
         if (task.TestCommand is { Length: > 0 } test)
         {
             sb.AppendLine($"- After you finish, the orchestrator runs `{test}` in this worktree. Make it pass.");
+        }
+        if (allowedCommands is { Count: > 0 })
+        {
+            sb.AppendLine($"- Pre-approved commands you can run (with any arguments): {string.Join(", ", allowedCommands.Select(c => $"`{c}`"))}. Build and run the tests yourself before finishing.");
         }
         sb.AppendLine("- Finish with a concise summary: what you changed, why, and anything the requester must know or verify.");
         sb.AppendLine($"- If you cannot continue without a decision from the requester, stop and make the last line of your final message `{marker} <your question, listing the options you see>`. Do not use it for anything you can reasonably decide yourself.");

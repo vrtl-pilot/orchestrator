@@ -17,6 +17,9 @@ public sealed record AgentTurnContext
     public required string ScratchDirectory { get; init; }
 
     public required AgentOptions Options { get; init; }
+
+    /// <summary>Shell commands (prefixes) the agent may run without asking; see <see cref="AllowedToolRules"/>.</summary>
+    public IReadOnlyList<string> AllowedCommands { get; init; } = [];
 }
 
 /// <summary>A fully described process launch for one agent turn.</summary>

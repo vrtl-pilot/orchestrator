@@ -14,7 +14,8 @@ public sealed class CodexAdapter : IAgentAdapter
     public string Name => "codex";
     public string DefaultExecutable => "codex";
     public string DisplayName => "Codex";
-    public IReadOnlyList<string> DefaultExtraArgs => ["--sandbox", "workspace-write"];
+    // Network inside the sandbox so package restores (dotnet restore, npm install) work; writes stay limited to the worktree.
+    public IReadOnlyList<string> DefaultExtraArgs => ["--sandbox", "workspace-write", "-c", "sandbox_workspace_write.network_access=true"];
     public string InstallHint => "npm i -g @openai/codex, then `codex login`";
 
     public AgentInvocation BuildInvocation(AgentTurnContext context)

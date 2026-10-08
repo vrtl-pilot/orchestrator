@@ -40,6 +40,17 @@ public sealed class UserConfigStore(string path)
         }
     }
 
+    /// <summary>Applies <paramref name="edit"/> to the <c>"Orchestrator"</c> object and saves atomically.</summary>
+    public void UpdateOrchestrator(Action<JsonObject> edit)
+    {
+        lock (WriteLock)
+        {
+            var root = Load();
+            edit(Child(root, "Orchestrator"));
+            Save(root);
+        }
+    }
+
     public bool RemoveAgent(string name)
     {
         lock (WriteLock)

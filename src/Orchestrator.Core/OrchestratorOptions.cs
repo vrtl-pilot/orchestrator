@@ -86,6 +86,18 @@ public sealed class OrchestratorOptions
         "ORCHESTRATOR_API_KEY",
     ];
 
+    /// <summary>
+    /// Command prefixes delegated agents may run without asking (each with any arguments), e.g. <c>dotnet</c>,
+    /// <c>npm test</c>. Applied to Claude Code and Qoder, which refuse every other shell command in headless mode; the
+    /// task's own test command is always added. Null = <see cref="DefaultAllowedCommands"/>; <c>[""]</c> = none.
+    /// </summary>
+    public List<string>? AllowedCommands { get; set; }
+
+    public static readonly IReadOnlyList<string> DefaultAllowedCommands = ["dotnet"];
+
+    public IReadOnlyList<string> EffectiveAllowedCommands =>
+        (AllowedCommands ?? [.. DefaultAllowedCommands]).Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).Distinct().ToList();
+
     /// <summary>Optional shared secret; when set, API and MCP requests must send <c>X-Orchestrator-Key</c>.</summary>
     public string? ApiKey { get; set; }
 

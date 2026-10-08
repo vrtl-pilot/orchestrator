@@ -106,6 +106,8 @@ the `agent-orchestrator` skill into the agent's skills folder. After that you ca
 
 - **Start without reinstalling:** `.\install.ps1 -Start` / `./install.sh --start` starts the installed server (no rebuild, no
   setup questions) and opens the dashboard. Same as `orch start` followed by `orch open`.
+- **Status:** `.\install.ps1 -Status` / `./install.sh --status` shows whether the server is running, its addresses, data folder,
+  autostart and each platform's state (same as `orch status`; exit code 3 when not running).
 - **Stop:** `.\install.ps1 -Stop` / `./install.sh --stop` stops the running server (same as `orch stop`). Autostart stays on, so
   it starts again at your next login; turn that off on the Setup page.
 - **Restart:** `.\install.ps1 -Restart` / `./install.sh --restart` stops the running server and starts it again (e.g. after

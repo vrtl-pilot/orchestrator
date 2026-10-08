@@ -7,6 +7,7 @@
     .\install.ps1 -Start                            start the installed server (no rebuild) and open the dashboard
     .\install.ps1 -Restart                          stop the running server and start it again (no rebuild)
     .\install.ps1 -Stop                             stop the running server (autostart stays on for next login)
+    .\install.ps1 -Status                           show whether it's running, its addresses, folders and platforms
     .\install.ps1 -SetupArgs '--agents','claude,qoder','--yes'   non-interactive setup
     .\install.ps1 -Uninstall [-Purge]               disconnect agents, remove autostart and the app
                                                     (-Purge: also delete task data and settings)
@@ -19,6 +20,7 @@ param(
   [switch]$Start,
   [switch]$Restart,
   [switch]$Stop,
+  [switch]$Status,
   [switch]$Uninstall,
   [switch]$Purge,
   [string[]]$SetupArgs = @()
@@ -56,6 +58,12 @@ if ($Uninstall) {
   if ($Purge) { if (Test-Path $root) { Remove-Item -Recurse -Force $root }; Say "Removed $root (tasks, logs, settings)." }
   else { Say "App removed. Tasks and settings kept in $root (use -Purge to delete)." }
   exit 0
+}
+
+if ($Status) {
+  if (-not (Test-Path $orch)) { Say "Not installed. Run .\install.ps1 to install."; exit 1 }
+  & $orch status
+  exit $LASTEXITCODE
 }
 
 if ($Stop) {

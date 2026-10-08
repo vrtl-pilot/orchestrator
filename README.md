@@ -104,6 +104,8 @@ Start the orchestrator automatically when you log in? [Y/n]
 the `agent-orchestrator` skill into the agent's skills folder. After that you can delegate from inside that agent.
 **Autostart** uses Task Scheduler on Windows, a systemd user service on Linux and a LaunchAgent on macOS.
 
+- **Start without reinstalling:** `.\install.ps1 -Start` / `./install.sh --start` starts the installed server (no rebuild, no
+  setup questions) and opens the dashboard. Same as `orch start` followed by `orch open`.
 - **Upgrade:** `git pull`, then run the installer again. Settings and task history are kept.
 - **Add an agent you installed later:** `orch setup` again, or **Connect** on the Setup page.
 - **Uninstall:** `.\install.ps1 -Uninstall` / `./install.sh --uninstall` disconnects every agent, removes autostart and the app.

@@ -6,6 +6,7 @@
     .\install.ps1 -NoSetup                          install only
     .\install.ps1 -Start                            start the installed server (no rebuild) and open the dashboard
     .\install.ps1 -Restart                          stop the running server and start it again (no rebuild)
+    .\install.ps1 -Stop                             stop the running server (autostart stays on for next login)
     .\install.ps1 -SetupArgs '--agents','claude,qoder','--yes'   non-interactive setup
     .\install.ps1 -Uninstall [-Purge]               disconnect agents, remove autostart and the app
                                                     (-Purge: also delete task data and settings)
@@ -17,6 +18,7 @@ param(
   [switch]$NoSetup,
   [switch]$Start,
   [switch]$Restart,
+  [switch]$Stop,
   [switch]$Uninstall,
   [switch]$Purge,
   [string[]]$SetupArgs = @()
@@ -53,6 +55,13 @@ if ($Uninstall) {
   Set-UserPath -Remove
   if ($Purge) { if (Test-Path $root) { Remove-Item -Recurse -Force $root }; Say "Removed $root (tasks, logs, settings)." }
   else { Say "App removed. Tasks and settings kept in $root (use -Purge to delete)." }
+  exit 0
+}
+
+if ($Stop) {
+  if (-not (Test-Path $orch)) { throw 'Agent Orchestrator is not installed yet. Run .\install.ps1 first.' }
+  & $orch stop
+  Stop-OldServer
   exit 0
 }
 

@@ -17,7 +17,20 @@ Delegate only work that is **self-contained** (clear inputs, clear done-criteria
 Don't delegate tiny edits, or work that needs your conversation context you can't write down. Don't
 delegate further if you are yourself a delegated agent (`ORCHESTRATOR_TASK_ID` is set) unless asked.
 
-## 2. Let the user choose the platform
+## 2. Split the work into small tasks
+
+Never send a whole feature as one task. Break the request into **small, self-contained subtasks**: one concern each,
+a few files, and a clear check (ideally a `test_command`). Delegate each one with its own `delegate_task` call. Small
+tasks finish sooner, ask fewer questions, and are easier to review and merge.
+
+- **Independent subtasks** (different files, no ordering): start them all, then wait on each. They run in parallel
+  up to the orchestrator's limits.
+- **Dependent subtasks**: delegate the next one only after you have merged the previous one, so it starts from that result.
+- Tell the user the plan (the list of subtasks) before starting. One platform choice (next step) can cover all
+  subtasks, unless the user wants different platforms for different ones.
+- If a subtask turns out to be large, or the agent keeps asking questions, cancel it and split it further.
+
+## 3. Let the user choose the platform
 
 Unless the user already named the platform, **ask them; never pick one yourself**:
 1. Call `list_agents`. It returns the `available` platforms (with their default model) and the `unavailable` ones
@@ -27,7 +40,7 @@ Unless the user already named the platform, **ask them; never pick one yourself*
 3. Use their answer as `agent`. If you call `delegate_task` without `agent`, it starts nothing and returns the same
    choices, so you can always ask then.
 
-## 3. Start the task
+## 4. Start the task
 
 Call `delegate_task` with:
 - `agent`: the platform the user chose.
@@ -40,20 +53,20 @@ Call `delegate_task` with:
 Your uncommitted changes are included in the task's starting point by default. Avoid editing the same
 files while the task runs; you will merge its branch later.
 
-## 4. Wait without blocking forever
+## 5. Wait without blocking forever
 
 Call `wait_task` (it returns within ~60–90 s). While the status is `queued`/`running`/`testing`, either
 call it again or do other useful work and come back. Use `get_task_events` to see what the agent is
 doing. Tell the user the `dashboardUrl` if they want to watch live.
 
-## 5. Handle questions (`input_required`)
+## 6. Handle questions (`input_required`)
 
 If `wait_task` returns `status: input_required`, the agent stopped to ask `pendingQuestion`.
 - If the answer follows from the user's request or the codebase, decide yourself.
 - If it is the user's call, ask the user, then pass their answer on.
-Send it with `answer_task(task_id, answer)` and go back to step 4. The agent resumes in the same session.
+Send it with `answer_task(task_id, answer)` and go back to step 5. The agent resumes in the same session.
 
-## 6. Review and integrate (`completed`)
+## 7. Review and integrate (`completed`)
 
 1. Read `summary`, `diffStat`, `changedFiles`, `testsPassed` / `testOutputTail`. If `needsAttention` is true or
    `testsPassed` is false, do not merge: the orchestrator's own test run outranks the agent's claim that tests pass.
@@ -68,7 +81,7 @@ Send it with `answer_task(task_id, answer)` and go back to step 4. The agent res
 5. Call `cleanup_task(task_id, delete_branch=true)` **after** merging. It refuses to delete an unmerged branch
    (see `notice`). Use `force=true` only when the user agrees to discard the work.
 
-## 7. Failures
+## 8. Failures
 
 `failed` tasks keep any partial work on their branch. Read `error`, then either `continue_task` with
 corrections, re-delegate with a better brief, or do the work yourself. Use `cancel_task` to stop a task

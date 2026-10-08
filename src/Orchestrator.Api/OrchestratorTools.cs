@@ -23,6 +23,8 @@ public sealed class OrchestratorTools(TaskService tasks, IOptions<OrchestratorOp
     [McpServerTool(Name = "delegate_task", Destructive = false, OpenWorld = false)]
     [Description("""
         Delegate a coding subtask to another coding agent platform (claude, codex, opencode, qoder or a custom one).
+        Keep each task small: split larger work into several small, independent subtasks (one concern, a few files, a
+        clear check) and delegate each separately, in parallel when they touch different files, instead of one big task.
         Choosing the platform: if the user has not named one, do NOT pick yourself. Call list_agents (or call this tool
         without agent, which starts nothing and returns the choices), ask the user which available platform to use,
         then call this tool with agent set.
@@ -32,7 +34,7 @@ public sealed class OrchestratorTools(TaskService tasks, IOptions<OrchestratorOp
         acceptance criteria. Your own working tree is never modified; you integrate the result yourself (see nextStep).
         """)]
     public async Task<string> DelegateTask(
-        [Description("Self-contained task brief for the delegated agent.")] string prompt,
+        [Description("Self-contained brief for ONE small, well-scoped subtask (goal, constraints, files, acceptance criteria).")] string prompt,
         [Description("Platform chosen by the user: 'claude', 'codex', 'opencode', 'qoder' or a custom name from list_agents. Leave empty to get the choices to ask the user.")] string? agent = null,
         [Description("Absolute path of the repository (any path inside it). Use your current working directory.")] string? repo_path = null,
         [Description("Optional commit-ish to branch from instead of your current HEAD + uncommitted changes.")] string? base_ref = null,

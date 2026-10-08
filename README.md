@@ -140,7 +140,8 @@ the docs while it runs."*
    among the platforms that are installed and enabled, showing each one's default model. It never picks silently: a
    `delegate_task` call without `agent` starts nothing and returns `agent_selection_required` with the available choices
    (and install hints for missing ones).
-2. It calls `delegate_task`, keeps working, and polls `wait_task`. Watch the task live on the dashboard.
+2. It splits the request into small subtasks (one concern, a few files, a clear check each) and calls `delegate_task` once
+   per subtask, in parallel when they're independent. It keeps working and polls `wait_task`. Watch each task live on the dashboard.
 3. If the delegated agent asks something, your agent answers it or relays the question to you.
 4. When the task is done it reviews the diff and test result and merges the branch.
 
